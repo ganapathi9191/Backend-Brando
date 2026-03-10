@@ -2,21 +2,33 @@ import mongoose from "mongoose";
 
 const userSchema = new mongoose.Schema({
   mobileNumber: {
-    type: String,
+    type: Number,
     required: true,
     unique: true
   },
-  otp: {
+
+  name: {
     type: String
   },
+
+  profileImage: {
+    type: String
+  },
+
   isVerified: {
     type: Boolean,
     default: false
   },
-  selectedCategory: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Category"
+
+  location: {
+    latitude: {
+      type: Number
+    },
+    longitude: {
+      type: Number
+    }
   }
+
 }, { timestamps: true });
 
 export default mongoose.model("User", userSchema);
