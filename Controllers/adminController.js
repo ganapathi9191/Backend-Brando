@@ -1,10 +1,63 @@
 import Hostel from "../Models/Hostel.js";
 import Category from "../Models/Category.js";
 import Banner from "../Models/Banner.js";
+import Admin from "../Models/Admin.js";
+import jwt from "jsonwebtoken";
 
 const getImageUrl = (req, path) => {
   return `${req.protocol}://${req.get("host")}/${path}`;
 };
+
+
+
+
+export const adminLogin = async (req, res) => {
+
+  try {
+
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password required"
+      });
+    }
+
+    let admin = await Admin.findOne({ email });
+
+    // create admin if not exists
+    if (!admin) {
+      admin = await Admin.create({
+        email: "admin123@gmail.com",
+        password: "Admin@123"
+      });
+    }
+
+    if (admin.password !== password) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid password"
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Admin login successful"
+    });
+
+  } catch (error) {
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+
+};
+
+
 
 export const createCategory = async (req, res) => {
   try {

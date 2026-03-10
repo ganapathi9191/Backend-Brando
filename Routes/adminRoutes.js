@@ -1,5 +1,6 @@
 import express from "express";
 import {
+    adminLogin,
     createCategory, getCategories,
     getCategoryById,
     updateCategoryById,
@@ -17,6 +18,9 @@ import {
 } from "../Controllers/adminController.js";
 import upload from "../Config/multer.js";
 const router = express.Router();
+
+router.post("/login", adminLogin);
+
 
 router.post("/createCategory", createCategory);
 router.get("/getallCategories", getCategories);

@@ -7,11 +7,14 @@ import {
     getUserById,
     getNearbyHostelsByUser,
     searchFilterHostels,
-    bookHostel,
-    getAllBookings,
-    getBookingById,
-    updateBookingById,
-    deleteBookingById,
+    toggleWishlist,
+    getUserWishlist,
+    createBooking,
+    getAllBookings,           // Add this
+    getBookingById,           // Update this
+    cancelBooking,            // Add this
+    getUserBookings,   
+    checkAvailableHostels,    
 
 } from "../Controllers/authController.js";
 import upload from "../Config/multer.js";
@@ -28,15 +31,22 @@ router.get("/user/:userId", getUserById);
 router.get("/nearby-hostels/:userId", getNearbyHostelsByUser);
 
 router.get("/search-filter-hostels", searchFilterHostels);
+
+
+// Toggle wishlist (add/remove)
+router.post("/wishlist/toggle", toggleWishlist);
+
+// Get user's wishlist
+router.get("/wishlist/:userId", getUserWishlist);
+
 //booking
-router.post("/createBooking", bookHostel);
-router.get("/getAllBookings", getAllBookings);
-router.get("/getBookingById/:id", getBookingById);
-router.put("/updateBookingById/:id", updateBookingById);
-router.delete("/deleteBookingById/:id", deleteBookingById);
+router.post("/createBooking", createBooking);
+router.get("/bookings", getAllBookings);                   
+router.get("/booking/:id", getBookingById);                 
+router.patch("/booking/:id/cancel", cancelBooking);       
+router.get("/user-bookings/:userId", getUserBookings);      
 
-
-
+router.get("/available-hostels", checkAvailableHostels);
 
 
 export default router;
