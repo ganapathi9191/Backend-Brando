@@ -11,10 +11,15 @@ import {
     getUserWishlist,
     createBooking,
     getAllBookings,           // Add this
-    getBookingById,           // Update this
-    cancelBooking,            // Add this
-    getUserBookings,   
-    checkAvailableHostels,    
+    //  getAllCancelledBookings,
+    //  getBookingsByUserId,
+    checkAvailableHostels,
+    submitBookingForm,
+     getAllBookingForms,
+  getBookingFormById,
+  getFormsByUserId,
+  updateBookingFormById,
+  deleteBookingFormById
 
 } from "../Controllers/authController.js";
 import upload from "../Config/multer.js";
@@ -41,12 +46,39 @@ router.get("/wishlist/:userId", getUserWishlist);
 
 //booking
 router.post("/createBooking", createBooking);
-router.get("/bookings", getAllBookings);                   
-router.get("/booking/:id", getBookingById);                 
-router.patch("/booking/:id/cancel", cancelBooking);       
-router.get("/user-bookings/:userId", getUserBookings);      
+// router.get('/bookings', getAllBookings);
+// router.get('/bookings/cancelled', getAllCancelledBookings);
+// router.get('/bookings/user/:userId', getBookingsByUserId);
 
+router.get("/get-all-bookings", getAllBookings);
 router.get("/available-hostels", checkAvailableHostels);
 
+
+router.post(
+  "/submit-booking-form",
+  upload.fields([
+    { name: "aadharCardImage", maxCount: 1 },
+    { name: "panCardImage", maxCount: 1 },
+    { name: "profileImage", maxCount: 1 }
+  ]),
+  submitBookingForm
+);
+router.get("/forms", getAllBookingForms);
+
+router.get("/forms/:id", getBookingFormById);
+
+router.get("/forms/user/:userId", getFormsByUserId);
+
+router.put(
+  "/forms/:id",
+  upload.fields([
+    { name: "aadharCardImage", maxCount: 1 },
+    { name: "panCardImage", maxCount: 1 },
+    { name: "profileImage", maxCount: 1 }
+  ]),
+  updateBookingFormById
+);
+
+router.delete("/forms/:id", deleteBookingFormById);
 
 export default router;

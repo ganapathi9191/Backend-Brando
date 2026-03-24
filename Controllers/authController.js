@@ -6,11 +6,35 @@ import Hostel from "../Models/Hostel.js";
 import mongoose from "mongoose";
 import Wishlist from "../Models/Wishlist.js";
 import Razorpay from 'razorpay';
+import BookingForm from "../Models/bookingFormModel.js";
+import Notification from "../Models/Notification.js";
 
 export const getImageUrl = (req, path) => {
   return `${req.protocol}://${req.get("host")}/${path}`;
 };
-
+ 
+// ------------------------
+// CREATE NOTIFICATION (INTERNAL USE)
+// Call this from anywhere: bookings, hostel updates, etc.
+// ------------------------
+ 
+export const createVendorNotification = async (vendorId, message, type = "info") => {
+  try {
+    const vendor = await Vendor.findById(vendorId);
+    if (!vendor) return;
+ 
+    vendor.notifications.push({
+      message,  
+      type,
+      read: false
+    });
+ 
+    await vendor.save();
+  } catch (err) {
+    console.error("Error creating vendor notification:", err);
+  }
+};
+ 
 
 // STEP 1: Send OTP — accepts mobileNumber, returns temp token
 export const sendOtp = async (req, res) => {
@@ -380,6 +404,16 @@ export const toggleWishlist = async (req, res) => {
       // Remove from wishlist
       await Wishlist.findByIdAndDelete(existingWishlist._id);
 
+         // 🔔 NOTIFICATION: Item removed from wishlist
+      await createNotification(
+        userId,
+        "❤️ Removed from Wishlist",
+        `${hostel.name} has been removed from your wishlist.`,
+        "system",
+        hostelId,
+        "Hostel"
+      );
+
       return res.status(200).json({
         success: true,
         message: "Hostel removed from wishlist",
@@ -388,6 +422,16 @@ export const toggleWishlist = async (req, res) => {
     } else {
       // Add to wishlist
       const wishlist = await Wishlist.create({ userId, hostelId });
+
+           // 🔔 NOTIFICATION: Item added to wishlist
+      await createNotification(
+        userId,
+        "✨ Added to Wishlist",
+        `${hostel.name} has been added to your wishlist. You can find it saved for later!`,
+        "system",
+        hostelId,
+        "Hostel"
+      );
 
       return res.status(201).json({
         success: true,
@@ -525,9 +569,269 @@ const generateBookingReference = () => {
 
 
 
+// export const createBooking = async (req, res) => {
+//   try {
+//     console.log('Create booking request received:', req.body);
+
+//     const {
+//       hostelId,
+//       userId,
+//       roomType,
+//       shareType,
+//       bookingType,
+//       startDate,
+//       endDate,
+//       transactionId
+//     } = req.body;
+
+//     // Basic validation
+//     if (!hostelId || !userId || !roomType || !shareType || !bookingType || !startDate || !transactionId) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "All fields including transactionId are required"
+//       });
+//     }
+
+//     // Check if user exists
+//     const user = await User.findById(userId);
+//     if (!user) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "User not found"
+//       });
+//     }
+
+//     // Check if hostel exists
+//     const hostel = await Hostel.findById(hostelId);
+//     if (!hostel) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Hostel not found"
+//       });
+//     }
+
+//     // Find sharing type
+//     const selectedSharing = hostel.sharings.find(s => s.shareType === shareType);
+//     if (!selectedSharing) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Share type not available"
+//       });
+//     }
+
+//     // Parse dates
+//     const parsedStartDate = new Date(startDate);
+//     if (isNaN(parsedStartDate.getTime())) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid start date"
+//       });
+//     }
+
+//     // Calculate amount
+//     let totalAmount = 0;
+//     let parsedEndDate = null;
+
+//     if (bookingType === "monthly") {
+//       totalAmount = roomType === "AC" ? selectedSharing.acMonthlyPrice : selectedSharing.nonAcMonthlyPrice;
+//     } else {
+//       if (!endDate) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "End date required for daily booking"
+//         });
+//       }
+
+//       parsedEndDate = new Date(endDate);
+//       if (isNaN(parsedEndDate.getTime())) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "Invalid end date"
+//         });
+//       }
+
+//       const dailyPrice = roomType === "AC" ? selectedSharing.acDailyPrice : selectedSharing.nonAcDailyPrice;
+//       const days = Math.ceil((parsedEndDate - parsedStartDate) / (1000 * 60 * 60 * 24));
+
+//       if (days <= 0) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "End date must be after start date"
+//         });
+//       }
+
+//       totalAmount = dailyPrice * days;
+//     }
+
+//     // VERIFY PAYMENT WITH RAZORPAY
+//     try {
+//       console.log('Attempting to verify payment with Razorpay...');
+//       console.log('Transaction ID:', transactionId);
+//       console.log('Expected booking amount:', totalAmount);
+
+//       // Initialize Razorpay instance
+//       const razorpay = new Razorpay({
+//         key_id: process.env.RAZORPAY_KEY_ID,
+//         key_secret: process.env.RAZORPAY_KEY_SECRET
+//       });
+
+//       // Fetch payment details from Razorpay
+//       console.log('Fetching payment details...');
+//       const payment = await razorpay.payments.fetch(transactionId);
+
+//       console.log('Payment fetched:', {
+//         id: payment.id,
+//         status: payment.status,
+//         amount: payment.amount,
+//         amount_in_rupees: payment.amount / 100
+//       });
+
+//       // FIX: Accept any valid payment (for testing purposes)
+//       const expectedAmountInPaise = Math.round(totalAmount * 100);
+      
+//       // For production, you might want to enforce exact amount
+//       // For testing, we'll just log a warning if amounts don't match
+//       if (payment.amount !== expectedAmountInPaise) {
+//         console.warn(`⚠️ Payment amount mismatch! Payment: ₹${payment.amount/100}, Expected: ₹${totalAmount}`);
+//         console.warn('Proceeding with booking anyway (TEST MODE ONLY)');
+//       }
+
+//       // Check if payment is valid
+//       if (payment.status !== 'captured' && payment.status !== 'authorized') {
+//         return res.status(400).json({
+//           success: false,
+//           message: `Payment cannot be processed. Current status: ${payment.status}`
+//         });
+//       }
+
+//       // If payment is authorized, capture it
+//       if (payment.status === 'authorized') {
+//         console.log('Payment is authorized. Capturing payment...');
+        
+//         const capturedPayment = await razorpay.payments.capture(
+//           transactionId,
+//           payment.amount,
+//           { currency: 'INR' }
+//         );
+
+//         console.log('Payment captured successfully:', {
+//           id: capturedPayment.id,
+//           status: capturedPayment.status
+//         });
+//       }
+
+//       console.log('Payment verified successfully');
+
+//     } catch (razorpayError) {
+//       console.error('Razorpay error:', razorpayError);
+
+//       // Check if it's an "already captured" error
+//       if (razorpayError.statusCode === 400 && 
+//           razorpayError.error && 
+//           razorpayError.error.description && 
+//           razorpayError.error.description.includes('already captured')) {
+//         console.log('Payment was already captured - continuing with booking');
+//         // Continue with booking creation
+//       } else {
+//         return res.status(400).json({
+//           success: false,
+//           message: "Payment verification failed",
+//           error: razorpayError.error?.description || razorpayError.message
+//         });
+//       }
+//     }
+
+//     // Check for duplicate transaction ID
+//     const existingBooking = await Booking.findOne({ transactionId });
+//     if (existingBooking) {
+//       return res.status(409).json({
+//         success: false,
+//         message: "Transaction ID already used for another booking"
+//       });
+//     }
+
+//     // Create booking object with transactionId
+//     const bookingData = {
+//       hostelId,
+//       userId,
+//       roomType,
+//       shareType,
+//       bookingType,
+//       startDate: parsedStartDate,
+//       totalAmount, // This will still be 12000 even though payment was 10000
+//       status: "confirmed",
+//       bookingReference: generateBookingReference(),
+//       transactionId,
+//       paymentMethod: "online",
+//       paymentStatus: "completed"
+//     };
+
+//     // Add optional fields only if needed
+//     if (bookingType === "daily") {
+//       bookingData.endDate = parsedEndDate;
+//       bookingData.pricePerDay = roomType === "AC" ? selectedSharing.acDailyPrice : selectedSharing.nonAcDailyPrice;
+//     } else {
+//       bookingData.monthlyAdvance = hostel.monthlyAdvance;
+//     }
+
+//     // Create booking
+//     console.log('Creating booking:', bookingData);
+//     const booking = new Booking(bookingData);
+//     await booking.save();
+
+//     // Get populated booking
+//     const populatedBooking = await Booking.findById(booking._id)
+//       .populate('userId', 'name mobileNumber')
+//       .populate('hostelId', 'name address');
+
+//     // Send response
+//     res.status(201).json({
+//       success: true,
+//       message: "Booking created and payment verified successfully",
+//       booking: {
+//         id: populatedBooking._id,
+//         reference: populatedBooking.bookingReference,
+//         transactionId: populatedBooking.transactionId,
+//         user: {
+//           id: populatedBooking.userId._id,
+//           name: populatedBooking.userId.name,
+//           mobile: populatedBooking.userId.mobileNumber
+//         },
+//         hostel: {
+//           id: populatedBooking.hostelId._id,
+//           name: populatedBooking.hostelId.name,
+//           address: populatedBooking.hostelId.address
+//         },
+//         roomType: populatedBooking.roomType,
+//         shareType: populatedBooking.shareType,
+//         bookingType: populatedBooking.bookingType,
+//         startDate: populatedBooking.startDate,
+//         endDate: populatedBooking.endDate,
+//         totalAmount: populatedBooking.totalAmount,
+//         status: populatedBooking.status,
+//         paymentStatus: populatedBooking.paymentStatus
+//       }
+//     });
+
+//   } catch (error) {
+//     console.error('Booking error:', error);
+
+//     if (error.code === 11000) {
+//       return res.status(409).json({
+//         success: false,
+//         message: "Duplicate booking reference or transaction ID. Please try again."
+//       });
+//     }
+
+//     res.status(500).json({
+//       success: false,
+//       message: error.message
+//     });
+//   }
+// };
+
 export const createBooking = async (req, res) => {
   try {
-    console.log('Create booking request received:', req.body);
 
     const {
       hostelId,
@@ -536,19 +840,18 @@ export const createBooking = async (req, res) => {
       shareType,
       bookingType,
       startDate,
-      endDate,
-      transactionId
+      endDate
     } = req.body;
 
-    // Basic validation
-    if (!hostelId || !userId || !roomType || !shareType || !bookingType || !startDate || !transactionId) {
+    // Validation
+    if (!hostelId || !userId || !roomType || !shareType || !bookingType || !startDate) {
       return res.status(400).json({
         success: false,
-        message: "All fields including transactionId are required"
+        message: "Required fields are missing"
       });
     }
 
-    // Check if user exists
+    // Check user
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({
@@ -557,7 +860,7 @@ export const createBooking = async (req, res) => {
       });
     }
 
-    // Check if hostel exists
+    // Check hostel
     const hostel = await Hostel.findById(hostelId);
     if (!hostel) {
       return res.status(404).json({
@@ -566,8 +869,11 @@ export const createBooking = async (req, res) => {
       });
     }
 
-    // Find sharing type
-    const selectedSharing = hostel.sharings.find(s => s.shareType === shareType);
+    // Find share type
+    const selectedSharing = hostel.sharings.find(
+      (s) => s.shareType === shareType
+    );
+
     if (!selectedSharing) {
       return res.status(400).json({
         success: false,
@@ -575,8 +881,8 @@ export const createBooking = async (req, res) => {
       });
     }
 
-    // Parse dates
     const parsedStartDate = new Date(startDate);
+
     if (isNaN(parsedStartDate.getTime())) {
       return res.status(400).json({
         success: false,
@@ -584,13 +890,69 @@ export const createBooking = async (req, res) => {
       });
     }
 
-    // Calculate amount
     let totalAmount = 0;
     let parsedEndDate = null;
 
+    // -------------------------
+    // MONTHLY BOOKING LOGIC
+    // -------------------------
     if (bookingType === "monthly") {
-      totalAmount = roomType === "AC" ? selectedSharing.acMonthlyPrice : selectedSharing.nonAcMonthlyPrice;
-    } else {
+
+      const monthlyPrice =
+        roomType === "AC"
+          ? selectedSharing.acMonthlyPrice
+          : selectedSharing.nonAcMonthlyPrice;
+
+      const monthlyAdvance = hostel.monthlyAdvance || 0;
+
+      // Check existing active booking
+      const previousBooking = await Booking.findOne({
+        userId,
+        hostelId,
+        status: { $in: ["confirmed", "pending"] }
+      });
+
+      if (previousBooking) {
+        // User already staying
+        totalAmount = monthlyPrice;
+      } else {
+        // First time joining
+        totalAmount = monthlyPrice + monthlyAdvance;
+      }
+
+      // Booking object
+      const bookingData = {
+        hostelId,
+        userId,
+        roomType,
+        shareType,
+        bookingType,
+        startDate: parsedStartDate,
+        totalAmount,
+        monthlyAdvance: previousBooking ? 0 : monthlyAdvance,
+        status: "confirmed",
+        bookingReference: generateBookingReference()
+      };
+
+      const booking = new Booking(bookingData);
+      await booking.save();
+
+      const populatedBooking = await Booking.findById(booking._id)
+        .populate("userId", "name mobileNumber")
+        .populate("hostelId", "name address");
+
+      return res.status(201).json({
+        success: true,
+        message: "Booking created successfully",
+        booking: populatedBooking
+      });
+    }
+
+    // -------------------------
+    // DAILY BOOKING
+    // -------------------------
+    if (bookingType === "daily") {
+
       if (!endDate) {
         return res.status(400).json({
           success: false,
@@ -599,6 +961,7 @@ export const createBooking = async (req, res) => {
       }
 
       parsedEndDate = new Date(endDate);
+
       if (isNaN(parsedEndDate.getTime())) {
         return res.status(400).json({
           success: false,
@@ -606,8 +969,14 @@ export const createBooking = async (req, res) => {
         });
       }
 
-      const dailyPrice = roomType === "AC" ? selectedSharing.acDailyPrice : selectedSharing.nonAcDailyPrice;
-      const days = Math.ceil((parsedEndDate - parsedStartDate) / (1000 * 60 * 60 * 24));
+      const dailyPrice =
+        roomType === "AC"
+          ? selectedSharing.acDailyPrice
+          : selectedSharing.nonAcDailyPrice;
+
+      const days = Math.ceil(
+        (parsedEndDate - parsedStartDate) / (1000 * 60 * 60 * 24)
+      );
 
       if (days <= 0) {
         return res.status(400).json({
@@ -617,551 +986,452 @@ export const createBooking = async (req, res) => {
       }
 
       totalAmount = dailyPrice * days;
-    }
 
-    // VERIFY PAYMENT WITH RAZORPAY
-    try {
-      console.log('Attempting to verify payment with Razorpay...');
-      console.log('Transaction ID:', transactionId);
-      console.log('Expected booking amount:', totalAmount);
+      const bookingData = {
+        hostelId,
+        userId,
+        roomType,
+        shareType,
+        bookingType,
+        startDate: parsedStartDate,
+        endDate: parsedEndDate,
+        pricePerDay: dailyPrice,
+        totalAmount,
+        status: "confirmed",
+        bookingReference: generateBookingReference()
+      };
 
-      // Initialize Razorpay instance
-      const razorpay = new Razorpay({
-        key_id: process.env.RAZORPAY_KEY_ID,
-        key_secret: process.env.RAZORPAY_KEY_SECRET
-      });
+      const booking = new Booking(bookingData);
+      await booking.save();
 
-      // Fetch payment details from Razorpay
-      console.log('Fetching payment details...');
-      const payment = await razorpay.payments.fetch(transactionId);
+      const populatedBooking = await Booking.findById(booking._id)
+        .populate("userId", "name mobileNumber")
+        .populate("hostelId", "name address");
 
-      console.log('Payment fetched:', {
-        id: payment.id,
-        status: payment.status,
-        amount: payment.amount,
-        amount_in_rupees: payment.amount / 100
-      });
-
-      // FIX: Accept any valid payment (for testing purposes)
-      const expectedAmountInPaise = Math.round(totalAmount * 100);
-      
-      // For production, you might want to enforce exact amount
-      // For testing, we'll just log a warning if amounts don't match
-      if (payment.amount !== expectedAmountInPaise) {
-        console.warn(`⚠️ Payment amount mismatch! Payment: ₹${payment.amount/100}, Expected: ₹${totalAmount}`);
-        console.warn('Proceeding with booking anyway (TEST MODE ONLY)');
-      }
-
-      // Check if payment is valid
-      if (payment.status !== 'captured' && payment.status !== 'authorized') {
-        return res.status(400).json({
-          success: false,
-          message: `Payment cannot be processed. Current status: ${payment.status}`
-        });
-      }
-
-      // If payment is authorized, capture it
-      if (payment.status === 'authorized') {
-        console.log('Payment is authorized. Capturing payment...');
-        
-        const capturedPayment = await razorpay.payments.capture(
-          transactionId,
-          payment.amount,
-          { currency: 'INR' }
-        );
-
-        console.log('Payment captured successfully:', {
-          id: capturedPayment.id,
-          status: capturedPayment.status
-        });
-      }
-
-      console.log('Payment verified successfully');
-
-    } catch (razorpayError) {
-      console.error('Razorpay error:', razorpayError);
-
-      // Check if it's an "already captured" error
-      if (razorpayError.statusCode === 400 && 
-          razorpayError.error && 
-          razorpayError.error.description && 
-          razorpayError.error.description.includes('already captured')) {
-        console.log('Payment was already captured - continuing with booking');
-        // Continue with booking creation
-      } else {
-        return res.status(400).json({
-          success: false,
-          message: "Payment verification failed",
-          error: razorpayError.error?.description || razorpayError.message
-        });
-      }
-    }
-
-    // Check for duplicate transaction ID
-    const existingBooking = await Booking.findOne({ transactionId });
-    if (existingBooking) {
-      return res.status(409).json({
-        success: false,
-        message: "Transaction ID already used for another booking"
+      return res.status(201).json({
+        success: true,
+        message: "Booking created successfully",
+        booking: populatedBooking
       });
     }
-
-    // Create booking object with transactionId
-    const bookingData = {
-      hostelId,
-      userId,
-      roomType,
-      shareType,
-      bookingType,
-      startDate: parsedStartDate,
-      totalAmount, // This will still be 12000 even though payment was 10000
-      status: "confirmed",
-      bookingReference: generateBookingReference(),
-      transactionId,
-      paymentMethod: "online",
-      paymentStatus: "completed"
-    };
-
-    // Add optional fields only if needed
-    if (bookingType === "daily") {
-      bookingData.endDate = parsedEndDate;
-      bookingData.pricePerDay = roomType === "AC" ? selectedSharing.acDailyPrice : selectedSharing.nonAcDailyPrice;
-    } else {
-      bookingData.monthlyAdvance = hostel.monthlyAdvance;
-    }
-
-    // Create booking
-    console.log('Creating booking:', bookingData);
-    const booking = new Booking(bookingData);
-    await booking.save();
-
-    // Get populated booking
-    const populatedBooking = await Booking.findById(booking._id)
-      .populate('userId', 'name mobileNumber')
-      .populate('hostelId', 'name address');
-
-    // Send response
-    res.status(201).json({
-      success: true,
-      message: "Booking created and payment verified successfully",
-      booking: {
-        id: populatedBooking._id,
-        reference: populatedBooking.bookingReference,
-        transactionId: populatedBooking.transactionId,
-        user: {
-          id: populatedBooking.userId._id,
-          name: populatedBooking.userId.name,
-          mobile: populatedBooking.userId.mobileNumber
-        },
-        hostel: {
-          id: populatedBooking.hostelId._id,
-          name: populatedBooking.hostelId.name,
-          address: populatedBooking.hostelId.address
-        },
-        roomType: populatedBooking.roomType,
-        shareType: populatedBooking.shareType,
-        bookingType: populatedBooking.bookingType,
-        startDate: populatedBooking.startDate,
-        endDate: populatedBooking.endDate,
-        totalAmount: populatedBooking.totalAmount,
-        status: populatedBooking.status,
-        paymentStatus: populatedBooking.paymentStatus
-      }
-    });
 
   } catch (error) {
-    console.error('Booking error:', error);
 
-    if (error.code === 11000) {
-      return res.status(409).json({
-        success: false,
-        message: "Duplicate booking reference or transaction ID. Please try again."
-      });
-    }
+    console.error("Booking error:", error);
 
     res.status(500).json({
       success: false,
       message: error.message
     });
+
   }
 };
-// GET ALL BOOKINGS with filters
+// // Get all bookings with optional filters and pagination
+// export const getAllBookings = async (req, res) => {
+//   try {
+//     const {
+//       page = 1,
+//       limit = 1000,
+//       status,
+//       paymentStatus,
+//       bookingType,
+//       hostelId,
+//       startDate,
+//       endDate,
+//       search
+//     } = req.query;
+
+//     // Build filter object
+//     const filter = {};
+
+//     if (status) filter.status = status;
+//     if (paymentStatus) filter.paymentStatus = paymentStatus;
+//     if (bookingType) filter.bookingType = bookingType;
+//     if (hostelId) filter.hostelId = hostelId;
+
+//     // Date range filter
+//     if (startDate || endDate) {
+//       filter.createdAt = {};
+//       if (startDate) filter.createdAt.$gte = new Date(startDate);
+//       if (endDate) filter.createdAt.$lte = new Date(endDate);
+//     }
+
+//     // Search by user name or mobile (requires aggregation)
+//     let bookings;
+//     let total;
+
+//     if (search) {
+//       // Use aggregation for search functionality
+//       const aggregationPipeline = [
+//         {
+//           $lookup: {
+//             from: 'users',
+//             localField: 'userId',
+//             foreignField: '_id',
+//             as: 'user'
+//           }
+//         },
+//         {
+//           $unwind: '$user'
+//         },
+//         {
+//           $match: {
+//             $or: [
+//               { 'user.name': { $regex: search, $options: 'i' } },
+//               { 'user.mobileNumber': { $regex: search, $options: 'i' } },
+//               { bookingReference: { $regex: search, $options: 'i' } },
+//               { transactionId: { $regex: search, $options: 'i' } }
+//             ]
+//           }
+//         },
+//         {
+//           $match: filter
+//         },
+//         {
+//           $sort: { createdAt: -1 }
+//         },
+//         {
+//           $skip: (parseInt(page) - 1) * parseInt(limit)
+//         },
+//         {
+//           $limit: parseInt(limit)
+//         },
+//         {
+//           $project: {
+//             'user.password': 0
+//           }
+//         }
+//       ];
+
+//       bookings = await Booking.aggregate(aggregationPipeline);
+      
+//       // Get total count for pagination
+//       const countPipeline = [...aggregationPipeline];
+//       countPipeline.splice(-3); // Remove skip, limit, project
+//       const countResult = await Booking.aggregate([
+//         ...countPipeline,
+//         { $count: 'total' }
+//       ]);
+//       total = countResult[0]?.total || 0;
+
+//     } else {
+//       // Simple query without search
+//       bookings = await Booking.find(filter)
+//         .populate('userId', 'name mobileNumber email')
+//         .populate('hostelId', 'name address city')
+//         .sort({ createdAt: -1 })
+//         .skip((parseInt(page) - 1) * parseInt(limit))
+//         .limit(parseInt(limit));
+
+//       total = await Booking.countDocuments(filter);
+//     }
+
+//     // Calculate statistics
+//     const stats = await Booking.aggregate([
+//       {
+//         $group: {
+//           _id: null,
+//           totalBookings: { $sum: 1 },
+//           totalRevenue: { $sum: '$totalAmount' },
+//           confirmedBookings: {
+//             $sum: { $cond: [{ $eq: ['$status', 'confirmed'] }, 1, 0] }
+//           },
+//           pendingBookings: {
+//             $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] }
+//           },
+//           cancelledBookings: {
+//             $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0] }
+//           },
+//           completedBookings: {
+//             $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] }
+//           }
+//         }
+//       }
+//     ]);
+
+//     res.status(200).json({
+//       success: true,
+//       data: bookings,
+//       stats: stats[0] || {
+//         totalBookings: 0,
+//         totalRevenue: 0,
+//         confirmedBookings: 0,
+//         pendingBookings: 0,
+//         cancelledBookings: 0,
+//         completedBookings: 0
+//       },
+//       pagination: {
+//         currentPage: parseInt(page),
+//         totalPages: Math.ceil(total / parseInt(limit)),
+//         totalItems: total,
+//         itemsPerPage: parseInt(limit)
+//       }
+//     });
+
+//   } catch (error) {
+//     console.error('Get all bookings error:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: error.message
+//     });
+//   }
+// };
+
+// // Get bookings by user ID
+// export const getBookingsByUserId = async (req, res) => {
+//   try {
+//     const { userId } = req.params;
+//     const { status, page = 1, limit = 1000 } = req.query;
+
+//     // Check if user exists
+//     const user = await User.findById(userId);
+//     if (!user) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "User not found"
+//       });
+//     }
+
+//     // Build filter
+//     const filter = { userId };
+//     if (status) filter.status = status;
+
+//     // Get bookings with pagination
+//     const bookings = await Booking.find(filter)
+//       .populate('hostelId', 'name address city images')
+//       .sort({ createdAt: -1 })
+//       .skip((parseInt(page) - 1) * parseInt(limit))
+//       .limit(parseInt(limit));
+
+//     const total = await Booking.countDocuments(filter);
+
+//     // Get booking statistics for this user
+//     const userStats = await Booking.aggregate([
+//       { $match: { userId: mongoose.Types.ObjectId(userId) } },
+//       {
+//         $group: {
+//           _id: null,
+//           totalBookings: { $sum: 1 },
+//           totalSpent: { $sum: '$totalAmount' },
+//           activeBookings: {
+//             $sum: {
+//               $cond: [
+//                 { $in: ['$status', ['confirmed', 'pending']] },
+//                 1,
+//                 0
+//               ]
+//             }
+//           },
+//           completedBookings: {
+//             $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] }
+//           },
+//           cancelledBookings: {
+//             $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0] }
+//           }
+//         }
+//       }
+//     ]);
+
+//     // Separate current active bookings (future dates)
+//     const currentDate = new Date();
+//     const activeBookings = bookings.filter(booking => 
+//       (booking.status === 'confirmed' || booking.status === 'pending') &&
+//       new Date(booking.startDate) >= currentDate
+//     );
+
+//     // Past bookings (completed or past dates)
+//     const pastBookings = bookings.filter(booking => 
+//       booking.status === 'completed' || 
+//       new Date(booking.startDate) < currentDate
+//     );
+
+//     res.status(200).json({
+//       success: true,
+//       data: {
+//         user: {
+//           id: user._id,
+//           name: user.name,
+//           mobile: user.mobileNumber,
+//           email: user.email
+//         },
+//         stats: userStats[0] || {
+//           totalBookings: 0,
+//           totalSpent: 0,
+//           activeBookings: 0,
+//           completedBookings: 0,
+//           cancelledBookings: 0
+//         },
+//         bookings: {
+//           active: activeBookings,
+//           past: pastBookings,
+//           all: bookings
+//         },
+//         pagination: {
+//           currentPage: parseInt(page),
+//           totalPages: Math.ceil(total / parseInt(limit)),
+//           totalItems: total,
+//           itemsPerPage: parseInt(limit)
+//         }
+//       }
+//     });
+
+//   } catch (error) {
+//     console.error('Get user bookings error:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: error.message
+//     });
+//   }
+// };
+
+// // Get all cancelled bookings
+// export const getAllCancelledBookings = async (req, res) => {
+//   try {
+//     const {
+//       page = 1,
+//       limit = 1000,
+//       hostelId,
+//       startDate,
+//       endDate,
+//       reason
+//     } = req.query;
+
+//     // Build filter for cancelled bookings
+//     const filter = { status: 'cancelled' };
+
+//     if (hostelId) filter.hostelId = hostelId;
+//     if (reason) filter['cancellationDetails.reason'] = { $regex: reason, $options: 'i' };
+
+//     // Date range for cancellation date
+//     if (startDate || endDate) {
+//       filter['cancellationDetails.cancelledAt'] = {};
+//       if (startDate) filter['cancellationDetails.cancelledAt'].$gte = new Date(startDate);
+//       if (endDate) filter['cancellationDetails.cancelledAt'].$lte = new Date(endDate);
+//     }
+
+//     // Get cancelled bookings with aggregation for statistics
+//     const cancelledBookings = await Booking.find(filter)
+//       .populate('userId', 'name mobileNumber email')
+//       .populate('hostelId', 'name address')
+//       .sort({ 'cancellationDetails.cancelledAt': -1 })
+//       .skip((parseInt(page) - 1) * parseInt(limit))
+//       .limit(parseInt(limit));
+
+//     const total = await Booking.countDocuments(filter);
+
+//     // Calculate cancellation statistics
+//     const cancellationStats = await Booking.aggregate([
+//       { $match: { status: 'cancelled' } },
+//       {
+//         $group: {
+//           _id: null,
+//           totalCancelled: { $sum: 1 },
+//           totalRefundAmount: { $sum: '$totalAmount' },
+//           averageCancellationTime: {
+//             $avg: {
+//               $subtract: [
+//                 '$cancellationDetails.cancelledAt',
+//                 '$createdAt'
+//               ]
+//             }
+//           }
+//         }
+//       }
+//     ]);
+
+//     // Group cancellations by reason
+//     const cancellationsByReason = await Booking.aggregate([
+//       { $match: { status: 'cancelled', 'cancellationDetails.reason': { $exists: true } } },
+//       {
+//         $group: {
+//           _id: '$cancellationDetails.reason',
+//           count: { $sum: 1 },
+//           totalAmount: { $sum: '$totalAmount' }
+//         }
+//       },
+//       { $sort: { count: -1 } }
+//     ]);
+
+//     // Group cancellations by date (for chart)
+//     const cancellationsByDate = await Booking.aggregate([
+//       { $match: { status: 'cancelled' } },
+//       {
+//         $group: {
+//           _id: {
+//             $dateToString: {
+//               format: '%Y-%m-%d',
+//               date: '$cancellationDetails.cancelledAt'
+//             }
+//           },
+//           count: { $sum: 1 },
+//           totalAmount: { $sum: '$totalAmount' }
+//         }
+//       },
+//       { $sort: { '_id': -1 } },
+//       { $limit: 30 }
+//     ]);
+
+//     res.status(200).json({
+//       success: true,
+//       data: {
+//         cancellations: cancelledBookings,
+//         statistics: {
+//           summary: cancellationStats[0] || {
+//             totalCancelled: 0,
+//             totalRefundAmount: 0,
+//             averageCancellationTime: 0
+//           },
+//           byReason: cancellationsByReason,
+//           byDate: cancellationsByDate
+//         }
+//       },
+//       pagination: {
+//         currentPage: parseInt(page),
+//         totalPages: Math.ceil(total / parseInt(limit)),
+//         totalItems: total,
+//         itemsPerPage: parseInt(limit)
+//       }
+//     });
+
+//   } catch (error) {
+//     console.error('Get cancelled bookings error:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: error.message
+//     });
+//   }
+// };
+
 export const getAllBookings = async (req, res) => {
   try {
-    const {
-      userId,
-      hostelId,
-      status,
-      bookingType,
-      startDate,
-      endDate,
-      page = 1,
-      limit = 10
-    } = req.query;
 
-    // Build filter object
-    const filter = {};
+    const bookings = await Booking.find()
+      .populate("userId", "name mobileNumber")
+      .populate("hostelId", "name address")
+      .sort({ createdAt: -1 });
 
-    if (userId) filter.userId = userId;
-    if (hostelId) filter.hostelId = hostelId;
-    if (status) filter.status = status;
-    if (bookingType) filter.bookingType = bookingType;
-
-    // Date range filter
-    if (startDate || endDate) {
-      filter.startDate = {};
-      if (startDate) filter.startDate.$gte = new Date(startDate);
-      if (endDate) filter.startDate.$lte = new Date(endDate);
-    }
-
-    // Pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-
-    // Execute query with pagination
-    const bookings = await Booking.find(filter)
-      .populate('userId', 'name mobileNumber profileImage')
-      .populate('hostelId', 'name address images rating')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit));
-
-    // Get total count for pagination
-    const totalCount = await Booking.countDocuments(filter);
-
-    // Format response
-    const formattedBookings = bookings.map(booking => ({
-      id: booking._id,
-      bookingReference: booking.bookingReference,
-      user: {
-        id: booking.userId._id,
-        name: booking.userId.name,
-        mobileNumber: booking.userId.mobileNumber,
-        profileImage: booking.userId.profileImage
-      },
-      hostel: {
-        id: booking.hostelId._id,
-        name: booking.hostelId.name,
-        address: booking.hostelId.address,
-        images: booking.hostelId.images,
-        rating: booking.hostelId.rating
-      },
-      roomType: booking.roomType,
-      shareType: booking.shareType,
-      bookingType: booking.bookingType,
-      startDate: booking.startDate,
-      endDate: booking.endDate,
-      totalAmount: booking.totalAmount,
-      monthlyAdvance: booking.monthlyAdvance,
-      pricePerDay: booking.pricePerDay,
-      status: booking.status,
-      createdAt: booking.createdAt,
-      updatedAt: booking.updatedAt
-    }));
-
-    res.status(200).json({
-      success: true,
-      message: "Bookings fetched successfully",
-      data: {
-        bookings: formattedBookings,
-        pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(totalCount / parseInt(limit)),
-          totalCount,
-          limit: parseInt(limit)
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error("Error fetching bookings:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-// GET BOOKING BY ID
-export const getBookingById = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (!id) {
-      return res.status(400).json({
-        success: false,
-        message: "Booking ID is required"
-      });
-    }
-
-    const booking = await Booking.findById(id)
-      .populate('userId', 'name mobileNumber profileImage location')
-      .populate({
-        path: 'hostelId',
-        populate: {
-          path: 'categoryId',
-          select: 'name'
-        }
-      });
-
-    if (!booking) {
+    if (!bookings || bookings.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "Booking not found"
+        message: "No bookings found"
       });
     }
 
-    // Format detailed response
-    const formattedBooking = {
-      id: booking._id,
-      bookingReference: booking.bookingReference,
-      user: {
-        id: booking.userId._id,
-        name: booking.userId.name,
-        mobileNumber: booking.userId.mobileNumber,
-        profileImage: booking.userId.profileImage,
-        location: booking.userId.location
-      },
-      hostel: {
-        id: booking.hostelId._id,
-        name: booking.hostelId.name,
-        category: booking.hostelId.categoryId,
-        address: booking.hostelId.address,
-        location: booking.hostelId.location,
-        images: booking.hostelId.images,
-        rating: booking.hostelId.rating,
-        monthlyAdvance: booking.hostelId.monthlyAdvance
-      },
-      bookingDetails: {
-        roomType: booking.roomType,
-        shareType: booking.shareType,
-        bookingType: booking.bookingType,
-        startDate: booking.startDate,
-        endDate: booking.endDate,
-        totalAmount: booking.totalAmount,
-        monthlyAdvance: booking.monthlyAdvance,
-        pricePerDay: booking.pricePerDay,
-        status: booking.status
-      },
-      timeline: {
-        createdAt: booking.createdAt,
-        updatedAt: booking.updatedAt
-      }
-    };
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "Booking fetched successfully",
-      booking: formattedBooking
+      totalBookings: bookings.length,
+      bookings
     });
 
   } catch (error) {
-    console.error("Error fetching booking:", error);
 
-    // Handle invalid ObjectId
-    if (error.name === 'CastError') {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid booking ID format"
-      });
-    }
+    console.error("Get all bookings error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message
     });
-  }
-};
 
-
-// CANCEL BOOKING
-export const cancelBooking = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { cancellationReason, cancelledBy } = req.body;
-
-    if (!id) {
-      return res.status(400).json({
-        success: false,
-        message: "Booking ID is required"
-      });
-    }
-
-    // Find booking
-    const booking = await Booking.findById(id);
-
-    if (!booking) {
-      return res.status(404).json({
-        success: false,
-        message: "Booking not found"
-      });
-    }
-
-    // Check if booking can be cancelled
-    if (booking.status === 'cancelled') {
-      return res.status(400).json({
-        success: false,
-        message: "Booking is already cancelled"
-      });
-    }
-
-    if (booking.status === 'completed') {
-      return res.status(400).json({
-        success: false,
-        message: "Completed bookings cannot be cancelled"
-      });
-    }
-
-    // Check if start date is in the past
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const bookingStartDate = new Date(booking.startDate);
-    bookingStartDate.setHours(0, 0, 0, 0);
-
-    if (bookingStartDate < today) {
-      return res.status(400).json({
-        success: false,
-        message: "Cannot cancel past bookings"
-      });
-    }
-
-    // Update booking status
-    booking.status = 'cancelled';
-
-    // Add cancellation metadata if your schema supports it
-    // You might want to add these fields to your schema
-    if (cancellationReason) {
-      booking.cancellationReason = cancellationReason;
-    }
-    if (cancelledBy) {
-      booking.cancelledBy = cancelledBy;
-    }
-    booking.cancelledAt = new Date();
-
-    await booking.save();
-
-    // Get updated booking with populated fields
-    const updatedBooking = await Booking.findById(booking._id)
-      .populate('userId', 'name mobileNumber')
-      .populate('hostelId', 'name address');
-
-    res.status(200).json({
-      success: true,
-      message: "Booking cancelled successfully",
-      booking: {
-        id: updatedBooking._id,
-        bookingReference: updatedBooking.bookingReference,
-        user: {
-          id: updatedBooking.userId._id,
-          name: updatedBooking.userId.name,
-          mobileNumber: updatedBooking.userId.mobileNumber
-        },
-        hostel: {
-          id: updatedBooking.hostelId._id,
-          name: updatedBooking.hostelId.name
-        },
-        status: updatedBooking.status,
-        cancelledAt: updatedBooking.cancelledAt,
-        cancellationReason: updatedBooking.cancellationReason
-      }
-    });
-
-  } catch (error) {
-    console.error("Error cancelling booking:", error);
-
-    if (error.name === 'CastError') {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid booking ID format"
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-// GET USER BOOKINGS (all bookings for a specific user)
-export const getUserBookings = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { status, bookingType, page = 1, limit = 10 } = req.query;
-
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        message: "User ID is required"
-      });
-    }
-
-    // Check if user exists
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found"
-      });
-    }
-
-    // Build filter
-    const filter = { userId };
-    if (status) filter.status = status;
-    if (bookingType) filter.bookingType = bookingType;
-
-    // Pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-
-    // Get bookings
-    const bookings = await Booking.find(filter)
-      .populate('hostelId', 'name address images rating')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit));
-
-    const totalCount = await Booking.countDocuments(filter);
-
-    // Format response
-    const formattedBookings = bookings.map(booking => ({
-      id: booking._id,
-      bookingReference: booking.bookingReference,
-      hostel: {
-        id: booking.hostelId._id,
-        name: booking.hostelId.name,
-        address: booking.hostelId.address,
-        image: booking.hostelId.images?.[0]
-      },
-      roomType: booking.roomType,
-      shareType: booking.shareType,
-      bookingType: booking.bookingType,
-      startDate: booking.startDate,
-      endDate: booking.endDate,
-      totalAmount: booking.totalAmount,
-      status: booking.status,
-      createdAt: booking.createdAt
-    }));
-
-    res.status(200).json({
-      success: true,
-      message: "User bookings fetched successfully",
-      data: {
-        bookings: formattedBookings,
-        pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(totalCount / parseInt(limit)),
-          totalCount,
-          limit: parseInt(limit)
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error("Error fetching user bookings:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
   }
 };
 
@@ -1427,4 +1697,280 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
+};
+
+
+export const submitBookingForm = async (req, res) => {
+  try {
+
+    const { bookingId, roomNo, name, mobileNumber } = req.body;
+
+    if (!bookingId || !roomNo || !name || !mobileNumber) {
+      return res.status(400).json({
+        success: false,
+        message: "All fields are required"
+      });
+    }
+
+    const booking = await Booking.findById(bookingId);
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found"
+      });
+    }
+
+    const aadharCardImage = req.files?.aadharCardImage?.[0]?.path;
+    const panCardImage = req.files?.panCardImage?.[0]?.path;
+    const profileImage = req.files?.profileImage?.[0]?.path;
+
+    if (!aadharCardImage || !panCardImage || !profileImage) {
+      return res.status(400).json({
+        success: false,
+        message: "All images are required"
+      });
+    }
+
+    const formData = new BookingForm({
+      bookingId,
+      roomNo,
+      name,
+      mobileNumber,
+      aadharCardImage,
+      panCardImage,
+      profileImage
+    });
+
+    await formData.save();
+
+    res.status(201).json({
+      success: true,
+      message: "Form submitted successfully",
+      data: {
+        _id: formData._id,
+        bookingId: formData.bookingId,
+        roomNo: formData.roomNo,
+        name: formData.name,
+        mobileNumber: formData.mobileNumber,
+        aadharCardImage: getImageUrl(req, formData.aadharCardImage),
+        panCardImage: getImageUrl(req, formData.panCardImage),
+        profileImage: getImageUrl(req, formData.profileImage),
+        createdAt: formData.createdAt
+      }
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+
+export const getAllBookingForms = async (req, res) => {
+  try {
+
+    const forms = await BookingForm.find()
+      .populate({
+        path: "bookingId",
+        populate: [
+          { path: "userId", select: "name mobileNumber" },
+          { path: "hostelId", select: "name address" }
+        ]
+      })
+      .sort({ createdAt: -1 });
+
+    const formatted = forms.map(form => ({
+      ...form._doc,
+      aadharCardImage: getImageUrl(req, form.aadharCardImage.replace(/\\/g, "/")),
+      panCardImage: getImageUrl(req, form.panCardImage.replace(/\\/g, "/")),
+      profileImage: getImageUrl(req, form.profileImage.replace(/\\/g, "/"))
+    }));
+
+    res.status(200).json({
+      success: true,
+      count: formatted.length,
+      data: formatted
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+
+export const getBookingFormById = async (req, res) => {
+  try {
+
+    const { id } = req.params;
+
+    const form = await BookingForm.findById(id)
+      .populate({
+        path: "bookingId",
+        populate: [
+          { path: "userId", select: "name mobileNumber" },
+          { path: "hostelId", select: "name address" }
+        ]
+      });
+
+    if (!form) {
+      return res.status(404).json({
+        success: false,
+        message: "Form not found"
+      });
+    }
+
+    const formatted = {
+      ...form._doc,
+      aadharCardImage: getImageUrl(req, form.aadharCardImage.replace(/\\/g, "/")),
+      panCardImage: getImageUrl(req, form.panCardImage.replace(/\\/g, "/")),
+      profileImage: getImageUrl(req, form.profileImage.replace(/\\/g, "/"))
+    };
+
+    res.status(200).json({
+      success: true,
+      data: formatted
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+
+export const getFormsByUserId = async (req, res) => {
+  try {
+
+    const { userId } = req.params;
+
+    const forms = await BookingForm.find()
+      .populate({
+        path: "bookingId",
+        match: { userId },
+        populate: [
+          { path: "userId", select: "name mobileNumber" },
+          { path: "hostelId", select: "name address" }
+        ]
+      });
+
+    const filteredForms = forms.filter(f => f.bookingId !== null);
+
+    const formatted = filteredForms.map(form => ({
+      ...form._doc,
+      aadharCardImage: getImageUrl(req, form.aadharCardImage.replace(/\\/g, "/")),
+      panCardImage: getImageUrl(req, form.panCardImage.replace(/\\/g, "/")),
+      profileImage: getImageUrl(req, form.profileImage.replace(/\\/g, "/"))
+    }));
+
+    res.status(200).json({
+      success: true,
+      count: formatted.length,
+      data: formatted
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+
+
+export const updateBookingFormById = async (req, res) => {
+  try {
+
+    const { id } = req.params;
+    const { roomNo, name, mobileNumber } = req.body;
+
+    const form = await BookingForm.findById(id);
+
+    if (!form) {
+      return res.status(404).json({
+        success: false,
+        message: "Form not found"
+      });
+    }
+
+    if (roomNo) form.roomNo = roomNo;
+    if (name) form.name = name;
+    if (mobileNumber) form.mobileNumber = mobileNumber;
+
+    if (req.files?.aadharCardImage) {
+      form.aadharCardImage = req.files.aadharCardImage[0].path;
+    }
+
+    if (req.files?.panCardImage) {
+      form.panCardImage = req.files.panCardImage[0].path;
+    }
+
+    if (req.files?.profileImage) {
+      form.profileImage = req.files.profileImage[0].path;
+    }
+
+    await form.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Form updated successfully",
+      data: form
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+
+export const deleteBookingFormById = async (req, res) => {
+  try {
+
+    const { id } = req.params;
+
+    const form = await BookingForm.findByIdAndDelete(id);
+
+    if (!form) {
+      return res.status(404).json({
+        success: false,
+        message: "Form not found"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Form deleted successfully"
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
 };

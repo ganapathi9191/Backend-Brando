@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Detection System | AI-Powered Surveillance</title>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Poppins', 'Segoe UI', sans-serif;
+        }
+        
+        body {
+            background: #0f0c1f;
+            min-height: 100vh;
+            padding: 20px;
+            position: relative;
+            overflow-x: hidden;
+        }
+        
+        /* Animated Background */
+        body::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at 20% 50%, rgba(102, 126, 234, 0.15) 0%, transparent 50%),
+                        radial-gradient(circle at 80% 80%, rgba(118, 75, 162, 0.15) 0%, transparent 50%);
+            pointer-events: none;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 1;
+        }
+        
+        /* Animated Header */
+        .header {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 30px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+            animation: slideDown 0.8s ease;
+        }
+        
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .header h1 {
+            color: white;
+            font-size: 3em;
+            margin-bottom: 10px;
+            text-shadow: 0 0 20px rgba(102, 126, 234, 0.5);
+            letter-spacing: 1px;
+        }
+        
+        .header h1 span {
+            background: linear-gradient(135deg, #667eea, #764ba2, #ff6b6b);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-size: 200% 200%;
+            animation: gradient 3s ease infinite;
+        }
+        
+        @keyframes gradient {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        
+        .header p {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 1.1em;
+            letter-spacing: 0.5px;
+        }
+        
+        /* Glassmorphism Status Bar */
+        .status-bar {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 25px;
+            margin-bottom: 30px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            animation: fadeIn 1s ease 0.2s both;
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: scale(0.9);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+        
+        .status-item {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 15px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .status-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
+            transition: left 0.5s ease;
+        }
+        
+        .status-item:hover::before {
+            left: 100%;
+        }
+        
+        .status-item:hover {
+            transform: translateY(-5px);
+            border-color: rgba(102, 126, 234, 0.3);
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.2);
+        }
+        
+        .status-item .label {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.9em;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .status-item .value {
+            color: white;
+            font-size: 2em;
+            font-weight: bold;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+        }
+        
+        /* Main Grid */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1.2fr 0.8fr;
+            gap: 30px;
+        }
+        
+        /* Camera Feed */
+        .camera-feed {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 30px;
+            padding: 25px;
+            animation: slideLeft 0.8s ease 0.3s both;
+        }
+        
+        @keyframes slideLeft {
+            from {
+                opacity: 0;
+                transform: translateX(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        
+        .feed-container {
+            position: relative;
+            width: 100%;
+            background: #1a1a2e;
+            border-radius: 20px;
+            overflow: hidden;
+            aspect-ratio: 16/9;
+            border: 2px solid rgba(102, 126, 234, 0.3);
+            box-shadow: 0 0 30px rgba(102, 126, 234, 0.2);
+        }
+        
+        .feed-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.3s ease;
+        }
+        
+        .feed-container:hover img {
+            transform: scale(1.02);
+        }
+        
+        .feed-overlay {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(5px);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 30px;
+            font-size: 0.95em;
+            font-weight: 500;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(102, 126, 234, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(102, 126, 234, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(102, 126, 234, 0); }
+        }
+        
+        .feed-controls {
+            display: flex;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .btn {
+            padding: 14px 28px;
+            border: none;
+            border-radius: 15px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            flex: 1;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+        
+        .btn:hover::before {
+            width: 300px;
+            height: 300px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 30px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
+            transform: translateY(-3px);
+            border-color: rgba(102, 126, 234, 0.5);
+        }
+        
+        /* Detection Panel */
+        .detection-panel {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 30px;
+            padding: 25px;
+            animation: slideRight 0.8s ease 0.3s both;
+        }
+        
+        @keyframes slideRight {
+            from {
+                opacity: 0;
+                transform: translateX(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        
+        .detection-panel h2 {
+            color: white;
+            font-size: 1.8em;
+            margin-bottom: 20px;
+            text-align: center;
+            background: linear-gradient(135deg, #fff, #a0a0ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        /* Voice Control */
+        .voice-control {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            border-radius: 20px;
+            padding: 20px;
+            color: white;
+            margin-bottom: 25px;
+            box-shadow: 0 15px 30px rgba(245, 87, 108, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .voice-control::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+            transform: rotate(45deg);
+            animation: shine 3s infinite;
+        }
+        
+        @keyframes shine {
+            0% { transform: translateX(-100%) rotate(45deg); }
+            100% { transform: translateX(100%) rotate(45deg); }
+        }
+        
+        .voice-control h3 {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+        
+        .voice-message {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 15px;
+            font-style: italic;
+            font-size: 1.1em;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(5px);
+        }
+        
+        /* Live Log */
+        .live-log {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 20px;
+            padding: 20px;
+            margin: 25px 0;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .live-log::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .live-log::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+        }
+        
+        .live-log::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border-radius: 10px;
+        }
+        
+        .log-entry {
+            padding: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            animation: slideIn 0.3s ease;
+        }
+        
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+        
+        .log-time {
+            font-size: 0.8em;
+            color: rgba(255, 255, 255, 0.5);
+            margin-bottom: 5px;
+        }
+        
+        .log-known { color: #4ade80; font-weight: 600; }
+        .log-unknown { color: #f87171; font-weight: 600; }
+        .log-noface { color: #94a3b8; }
+        
+        /* Users List */
+        .users-list {
+            display: grid;
+            gap: 12px;
+        }
+        
+        .user-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 15px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .user-card::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: linear-gradient(135deg, #4ade80, #22c55e);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .user-card:hover {
+            transform: translateX(5px);
+            background: rgba(255, 255, 255, 0.07);
+            border-color: rgba(74, 222, 128, 0.3);
+        }
+        
+        .user-card:hover::after {
+            opacity: 1;
+        }
+        
+        .user-avatar {
+            width: 50px;
+            height: 50px;
+            border-radius: 15px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 1.2em;
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        
+        .user-info {
+            flex: 1;
+        }
+        
+        .user-name {
+            font-weight: 600;
+            color: white;
+            font-size: 1.1em;
+            margin-bottom: 5px;
+        }
+        
+        .user-phone {
+            font-size: 0.85em;
+            color: rgba(255, 255, 255, 0.6);
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        /* Loading Animation */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Responsive Design */
+        @media (max-width: 1200px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2.2em;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .status-bar {
+                grid-template-columns: 1fr;
+            }
+            
+            .feed-controls {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>Face Recognition <span>AI</span></h1>
+            <p><i class="fas fa-shield-alt" style="margin-right: 8px;"></i>Real-time surveillance with intelligent voice announcements</p>
+        </div>
+        
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="label"><i class="fas fa-circle" style="color: #4ade80; margin-right: 5px;"></i>System</div>
+                <div class="value" id="systemStatus">Active</div>
+            </div>
+            <div class="status-item">
+                <div class="label"><i class="fas fa-camera" style="margin-right: 5px;"></i>Camera</div>
+                <div class="value" id="cameraStatus">XiaoMi</div>
+            </div>
+            <div class="status-item">
+                <div class="label"><i class="fas fa-users" style="margin-right: 5px;"></i>Registered</div>
+                <div class="value" id="userCount">0</div>
+            </div>
+            <div class="status-item">
+                <div class="label"><i class="fas fa-film" style="margin-right: 5px;"></i>Frames</div>
+                <div class="value" id="frameCount">0</div>
+            </div>
+        </div>
+        
+        <!-- Main Grid -->
+        <div class="main-grid">
+            <!-- Camera Feed -->
+            <div class="camera-feed">
+                <div class="feed-container">
+                    <img id="cameraFeed" src="/camera-feed?t=${Date.now()}" alt="Camera Feed">
+                    <div class="feed-overlay" id="feedOverlay">
+                        <i class="fas fa-sync-alt fa-spin" style="margin-right: 8px;"></i>Initializing...
+                    </div>
+                </div>
+                
+                <div class="feed-controls">
+                    <button class="btn btn-primary" onclick="takeSnapshot()">
+                        <i class="fas fa-camera-retro"></i> Snapshot
+                    </button>
+                    <button class="btn btn-secondary" onclick="testVoice()">
+                        <i class="fas fa-volume-up"></i> Test Voice
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Detection Panel -->
+            <div class="detection-panel">
+                <h2><i class="fas fa-chart-line" style="margin-right: 10px;"></i>Live Intelligence</h2>
+                
+                <div class="voice-control">
+                    <h3><i class="fas fa-microphone-alt"></i> AI Voice Assistant</h3>
+                    <div class="voice-message" id="lastVoice">
+                        <i class="fas fa-spinner fa-pulse" style="margin-right: 8px;"></i>System initializing...
+                    </div>
+                </div>
+                
+                <h3 style="color: white; margin-bottom: 15px;">
+                    <i class="fas fa-history"></i> Detection Log
+                </h3>
+                <div class="live-log" id="liveLog">
+                    <div class="log-entry">
+                        <div class="log-time">Just now</div>
+                        <div><i class="fas fa-power-off" style="color: #4ade80; margin-right: 8px;"></i>System started</div>
+                    </div>
+                </div>
+                
+                <h3 style="color: white; margin: 20px 0 15px;">
+                    <i class="fas fa-id-card"></i> Authorized Personnel
+                </h3>
+                <div class="users-list" id="usersList">
+                    <div class="user-card">
+                        <div class="user-avatar"><i class="fas fa-user"></i></div>
+                        <div class="user-info">
+                            <div class="user-name">Loading database...</div>
+                            <div class="user-phone"><i class="fas fa-database"></i> Fetching records</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // WebSocket connection
+        const ws = new WebSocket(`ws://${window.location.host}`);
+        
+        ws.onopen = () => {
+            console.log('Connected to server');
+            addLog('🟢 Connected to server', 'system');
+        };
+        
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            
+            if (data.type === 'users') {
+                updateUsersList(data.users);
+                document.getElementById('userCount').textContent = data.users.length;
+            }
+            
+            if (data.type === 'detection') {
+                updateDetection(data.detection);
+                document.getElementById('frameCount').textContent = data.frameCount || 0;
+                
+                // Refresh camera feed with timestamp
+                document.getElementById('cameraFeed').src = `/camera-feed?t=${Date.now()}`;
+            }
+            
+            if (data.type === 'voice') {
+                document.getElementById('lastVoice').innerHTML = `<i class="fas fa-volume-up" style="margin-right: 8px;"></i>${data.voice}`;
+                addLog(`🔊 ${data.voice}`, 'voice');
+            }
+        };
+        
+        ws.onclose = () => {
+            console.log('Disconnected from server');
+            document.getElementById('systemStatus').innerHTML = '<span style="color: #f87171;"><i class="fas fa-exclamation-triangle"></i> Offline</span>';
+            addLog('🔴 Disconnected from server', 'system');
+        };
+        
+        function updateDetection(detection) {
+            const overlay = document.getElementById('feedOverlay');
+            
+            if (!detection || !detection.hasFace) {
+                overlay.innerHTML = '<i class="fas fa-user-slash" style="margin-right: 8px;"></i>No Face Detected';
+                addLog('👤 No face detected', 'noface');
+            } else if (detection.matchedUser) {
+                overlay.innerHTML = `<i class="fas fa-check-circle" style="color: #4ade80; margin-right: 8px;"></i>${detection.matchedUser.name}`;
+                addLog(`✅ Known: ${detection.matchedUser.name} (${Math.round(detection.confidence)}%)`, 'known');
+            } else {
+                const text = detection.faceCount > 1 ? 
+                    `<i class="fas fa-exclamation-triangle" style="margin-right: 8px;"></i>${detection.faceCount} Unknown People` : 
+                    '<i class="fas fa-question-circle" style="margin-right: 8px;"></i>Unknown Person';
+                overlay.innerHTML = text;
+                addLog(`⚠️ Unknown detected`, 'unknown');
+            }
+        }
+        
+        function addLog(message, type = '') {
+            const log = document.getElementById('liveLog');
+            const time = new Date().toLocaleTimeString();
+            
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            
+            let icon = '';
+            let colorClass = '';
+            
+            if (type === 'known') {
+                icon = '<i class="fas fa-check-circle" style="color: #4ade80; margin-right: 8px;"></i>';
+                colorClass = 'log-known';
+            } else if (type === 'unknown') {
+                icon = '<i class="fas fa-exclamation-triangle" style="color: #f87171; margin-right: 8px;"></i>';
+                colorClass = 'log-unknown';
+            } else if (type === 'noface') {
+                icon = '<i class="fas fa-user-slash" style="color: #94a3b8; margin-right: 8px;"></i>';
+                colorClass = 'log-noface';
+            } else if (type === 'voice') {
+                icon = '<i class="fas fa-volume-up" style="color: #f093fb; margin-right: 8px;"></i>';
+            } else {
+                icon = '<i class="fas fa-info-circle" style="color: #60a5fa; margin-right: 8px;"></i>';
+            }
+            
+            entry.innerHTML = `
+                <div class="log-time"><i class="far fa-clock" style="margin-right: 5px;"></i>${time}</div>
+                <div class="${colorClass}">${icon}${message}</div>
+            `;
+            
+            log.insertBefore(entry, log.firstChild);
+            
+            // Keep only last 50 entries
+            if (log.children.length > 50) {
+                log.removeChild(log.lastChild);
+            }
+        }
+        
+        function updateUsersList(users) {
+            const list = document.getElementById('usersList');
+            list.innerHTML = '';
+            
+            if (users.length === 0) {
+                list.innerHTML = `
+                    <div class="user-card">
+                        <div class="user-avatar"><i class="fas fa-user-slash"></i></div>
+                        <div class="user-info">
+                            <div class="user-name">No registered users</div>
+                            <div class="user-phone"><i class="fas fa-database"></i> Database empty</div>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+            
+            users.forEach(user => {
+                const initial = user.name ? user.name[0].toUpperCase() : '?';
+                const card = document.createElement('div');
+                card.className = 'user-card';
+                card.innerHTML = `
+                    <div class="user-avatar">${initial}</div>
+                    <div class="user-info">
+                        <div class="user-name">${user.name}</div>
+                        <div class="user-phone"><i class="fas fa-phone-alt"></i> ${user.phoneNumber}</div>
+                    </div>
+                `;
+                list.appendChild(card);
+            });
+        }
+        
+        function takeSnapshot() {
+            fetch('/api/snapshot', { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        addLog('📸 Snapshot saved', 'system');
+                    } else {
+                        addLog('❌ Failed to take snapshot', 'system');
+                    }
+                })
+                .catch(() => addLog('❌ Error taking snapshot', 'system'));
+        }
+        
+        function testVoice() {
+            fetch('/api/test-voice', { method: 'POST' })
+                .then(() => addLog('🔊 Voice test sent', 'system'))
+                .catch(() => addLog('❌ Voice test failed', 'system'));
+        }
+        
+        // Load initial status
+        fetch('/api/status')
+            .then(res => res.json())
+            .then(data => {
+                if (data.users) {
+                    updateUsersList(data.users);
+                    document.getElementById('userCount').textContent = data.users.length;
+                }
+                document.getElementById('frameCount').textContent = data.frameCount || 0;
+                document.getElementById('cameraStatus').textContent = data.camera || 'XiaoMi';
+            })
+            .catch(err => console.error('Error loading status:', err));
+    </script>
+</body>
+</html>
