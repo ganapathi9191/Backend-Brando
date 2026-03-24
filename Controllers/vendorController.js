@@ -62,27 +62,34 @@ export const registerVendor = async (req, res) => {
 
 
 
-// LOGIN (SEND OTP)
+
+
+// LOGIN VENDOR
 export const loginVendor = async (req, res) => {
-
   try {
-
     const { mobileNumber } = req.body;
 
-    const vendor = await Vendor.findOne({ mobileNumber });
+    if (!mobileNumber) {
+      return res.status(400).json({
+        success: false,
+        message: "Mobile number is required",
+      });
+    }
+
+    // ✅ deletedAt: null — excludes soft deleted vendors
+    const vendor = await Vendor.findOne({ mobileNumber, deletedAt: null });
 
     if (!vendor) {
-      return res.status(404).json({
-        success: false,
-        message: "Vendor not found"
+      return res.status(200).json({
+        success: true,
+        isExists: false,
+        message: "Vendor not registered",
       });
     }
 
     const otp = "1234";
-
     vendor.otp = otp;
     await vendor.save();
-
 
     const token = jwt.sign(
       { id: vendor._id },
@@ -90,89 +97,97 @@ export const loginVendor = async (req, res) => {
       { expiresIn: "10m" }
     );
 
-    res.json({
+    return res.status(200).json({
       success: true,
+      isExists: true,
       message: "OTP sent successfully",
+      userId: vendor._id,
       mobileNumber: vendor.mobileNumber,
       token,
-      otp: "1234"
+      otp, // Remove in production
     });
 
   } catch (error) {
-
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      error: error.message
+      message: "Internal server error",
+      error: error.message,
     });
-
   }
-
 };
-
-
 
 // VERIFY OTP
 export const verifyVendorOtp = async (req, res) => {
-
   try {
-
     const { mobileNumber, token, otp } = req.body;
 
     if (!mobileNumber || !token || !otp) {
       return res.status(400).json({
         success: false,
-        message: "mobileNumber, token and otp are required"
+        message: "mobileNumber, token, and otp are required",
       });
     }
 
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || "secret"
-    );
+    // ✅ Verify JWT
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET || "secret");
+    } catch (jwtError) {
+      return res.status(401).json({
+        success: false,
+        message:
+          jwtError.name === "TokenExpiredError"
+            ? "OTP expired, please request a new one"
+            : "Invalid token",
+      });
+    }
 
+    // ✅ deletedAt: null — excludes soft deleted vendors
     const vendor = await Vendor.findOne({
       _id: decoded.id,
-      mobileNumber: mobileNumber
+      mobileNumber,
+      deletedAt: null,
     });
 
     if (!vendor) {
       return res.status(404).json({
         success: false,
-        message: "Vendor not found"
+        message: "Vendor not found",
       });
     }
 
     if (vendor.otp !== otp) {
       return res.status(400).json({
         success: false,
-        message: "Invalid OTP"
+        message: "Invalid OTP",
       });
     }
 
     vendor.otpVerified = true;
     vendor.otp = null;
-
     await vendor.save();
 
-    
+    const authToken = jwt.sign(
+      { id: vendor._id, mobileNumber: vendor.mobileNumber },
+      process.env.JWT_SECRET || "secret",
+      { expiresIn: "30d" }
+    );
 
-
-    res.json({
+    return res.status(200).json({
       success: true,
       message: "OTP verified successfully",
       vendorId: vendor._id,
-      mobileNumber: vendor.mobileNumber
+      mobileNumber: vendor.mobileNumber,
+      token: authToken,
     });
 
   } catch (error) {
-
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      error: error.message
+      message: "Internal server error",
+      error: error.message,
     });
-
   }
-
 };
 
 export const updateVendorProfile = async (req, res) => {

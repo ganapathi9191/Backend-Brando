@@ -27,7 +27,12 @@ const userSchema = new mongoose.Schema({
     longitude: {
       type: Number
     }
-  }
+  },
+    hostelId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Hostel",  // Reference to Hostel model
+    default: null   // Default to null when no hostel is booked
+  },
 
 }, { timestamps: true });
 

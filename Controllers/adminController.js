@@ -19,7 +19,7 @@ const getBaseUrl = (req) => {
     console.log("✅ Using BASE_URL from .env:", process.env.BASE_URL);
     return process.env.BASE_URL;
   }
-  
+
   // Fallback to request URL
   console.log("⚠️ Using fallback URL:", `${req.protocol}://${req.get('host')}`);
   return `${req.protocol}://${req.get('host')}`;
@@ -46,7 +46,8 @@ export const createVendorNotification = async (vendorId, message, type = "info")
 
 // helper
 const formatHostel = (hostel, req) => {
-  const roomTypes = [...new Set(hostel.sharings.map(s => s.type))];
+  // Get base URL for images
+  const baseUrl = `${req.protocol}://${req.get("host")}`;
 
   return {
     _id: hostel._id,
@@ -57,19 +58,14 @@ const formatHostel = (hostel, req) => {
     rating: hostel.rating,
     address: hostel.address,
     monthlyAdvance: hostel.monthlyAdvance,
-
-    latitude: hostel.location.coordinates[1],
-    longitude: hostel.location.coordinates[0],
-
-    type: roomTypes,
-
-    rooms: {
-      ac: hostel.sharings.filter(s => s.type === "AC"),
-      nonAc: hostel.sharings.filter(s => s.type === "Non-AC")
-    },
-
-    images: hostel.images.map(img => `${req.protocol}://${req.get("host")}/${img}`),
-    createdAt: hostel.createdAt
+    latitude: hostel.location?.coordinates[1],
+    longitude: hostel.location?.coordinates[0],
+    sharings: hostel.sharings || [],
+    images: hostel.images?.map(img => `${baseUrl}/${img}`) || [],
+    qrCode: hostel.qrCode || null, // Include QR code
+    qrUrl: hostel.qrCode ? `${baseUrl}/api/Admin/hostel/${hostel._id}/qrcode` : null, // QR URL
+    createdAt: hostel.createdAt,
+    updatedAt: hostel.updatedAt
   };
 };
 const formatLocation = (location) => {
@@ -85,7 +81,7 @@ const formatLocation = (location) => {
 
 
 
-// ─── HTML form template (served when QR is scanned) ──────────────────────────
+// Updated generateFormHTML with new fields while maintaining old design
 const generateFormHTML = (hostelId) => `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -116,10 +112,30 @@ const generateFormHTML = (hostelId) => `<!DOCTYPE html>
     .field label .req{color:var(--accent);font-size:.9rem}
     .iw{position:relative}
     .iw .ic{position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:16px;opacity:.5;pointer-events:none}
-    input[type=text],input[type=tel]{width:100%;padding:12px 14px 12px 42px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:.95rem;outline:none;transition:border-color .2s,box-shadow .2s}
-    input[type=text]::placeholder,input[type=tel]::placeholder{color:var(--muted);opacity:.6}
-    input[type=text]:focus,input[type=tel]:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(240,180,41,0.12)}
-    input[type=text].error,input[type=tel].error{border-color:var(--error);box-shadow:0 0 0 3px rgba(240,96,96,0.12)}
+    input[type=text],input[type=tel],input[type=email],input[type=number],input[type=date],select{
+      width:100%;
+      padding:12px 14px 12px 42px;
+      background:var(--input-bg);
+      border:1.5px solid var(--border);
+      border-radius:12px;
+      color:var(--text);
+      font-family:'DM Sans',sans-serif;
+      font-size:.95rem;
+      outline:none;
+      transition:border-color .2s,box-shadow .2s;
+    }
+    select {
+      appearance: none;
+      cursor: pointer;
+      padding:12px 14px 12px 42px;
+    }
+    select option {
+      background: var(--card);
+      color: var(--text);
+    }
+    input[type=text]::placeholder,input[type=tel]::placeholder,input[type=email]::placeholder,input[type=number]::placeholder,input[type=date]::placeholder{color:var(--muted);opacity:.6}
+    input[type=text]:focus,input[type=tel]:focus,input[type=email]:focus,input[type=number]:focus,input[type=date]:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(240,180,41,0.12)}
+    input[type=text].error,input[type=tel].error,input[type=email].error,input[type=number].error,input[type=date].error,select.error{border-color:var(--error);box-shadow:0 0 0 3px rgba(240,96,96,0.12)}
     .hint{font-size:.75rem;color:var(--muted);margin-top:5px}
     .fr{display:flex;align-items:center;gap:12px;background:var(--input-bg);border:1.5px dashed var(--border);border-radius:12px;padding:12px 14px;cursor:pointer;transition:border-color .2s,background .2s}
     .fr:hover{border-color:var(--accent);background:rgba(240,180,41,0.04)}
@@ -159,7 +175,7 @@ const generateFormHTML = (hostelId) => `<!DOCTYPE html>
 <div class="pw">
   <div class="brand">
     <div class="brand-icon">🏠</div>
-    <span class="brand-name">HostelHub</span>
+    <span class="brand-name">Brando</span>
     <span class="brand-tag">Secure Check-in</span>
   </div>
   <div class="card">
@@ -176,6 +192,10 @@ const generateFormHTML = (hostelId) => `<!DOCTYPE html>
           <div class="iw"><span class="ic">👤</span><input type="text" id="name" placeholder="e.g. Ravi Kumar" autocomplete="name" /></div>
         </div>
         <div class="field">
+          <label for="email">Email Address <span class="req">*</span></label>
+          <div class="iw"><span class="ic">✉️</span><input type="email" id="email" placeholder="your.email@example.com" autocomplete="email" /></div>
+        </div>
+        <div class="field">
           <label for="mobile">Mobile Number <span class="req">*</span></label>
           <div class="iw"><span class="ic">📱</span><input type="tel" id="mobile" placeholder="10-digit mobile number" maxlength="10" /></div>
         </div>
@@ -184,6 +204,46 @@ const generateFormHTML = (hostelId) => `<!DOCTYPE html>
           <div class="iw"><span class="ic">🆘</span><input type="tel" id="en" placeholder="Emergency contact (optional)" maxlength="10" /></div>
           <span class="hint">A family member or guardian's number is recommended.</span>
         </div>
+        
+        <div class="dv" style="margin-top:8px"><div class="dl"></div><span class="dt">Stay Details</span><div class="dl"></div></div>
+        
+        <div class="field">
+          <label for="roomNo">Room Number <span class="req">*</span></label>
+          <div class="iw"><span class="ic">🚪</span><input type="text" id="roomNo" placeholder="e.g., 101, A-202" /></div>
+        </div>
+        
+        <div class="field">
+          <label for="joiningDate">Joining Date <span class="req">*</span></label>
+          <div class="iw"><span class="ic">📅</span><input type="date" id="joiningDate" /></div>
+        </div>
+        
+        <div class="field">
+          <label for="tenure">Tenure <span class="req">*</span></label>
+          <div class="iw"><span class="ic">⏱️</span>
+            <select id="tenure">
+              <option value="">Select tenure</option>
+              <option value="monthly">Monthly</option>
+              <option value="daily">Daily</option>
+            </select>
+          </div>
+        </div>
+        
+        <div class="field">
+          <label for="roomType">Room Type <span class="req">*</span></label>
+          <div class="iw"><span class="ic">❄️</span>
+            <select id="roomType">
+              <option value="">Select room type</option>
+              <option value="AC">AC</option>
+              <option value="Non-AC">Non-AC</option>
+            </select>
+          </div>
+        </div>
+        
+        <div class="field">
+          <label for="advance">Advance Amount (₹) <span class="req">*</span></label>
+          <div class="iw"><span class="ic">💰</span><input type="number" id="advance" placeholder="Enter advance amount" min="0" step="1" /></div>
+        </div>
+        
         <div class="dv" style="margin-top:8px"><div class="dl"></div><span class="dt">Documents</span><div class="dl"></div></div>
         <div class="field">
           <label>Aadhar Card</label>
@@ -245,18 +305,45 @@ const generateFormHTML = (hostelId) => `<!DOCTYPE html>
   document.getElementById('rf').addEventListener('submit',async function(e){
     e.preventDefault();
     var name=document.getElementById('name').value.trim();
+    var email=document.getElementById('email').value.trim();
     var mobile=document.getElementById('mobile').value.trim();
+    var roomNo=document.getElementById('roomNo').value.trim();
+    var joiningDate=document.getElementById('joiningDate').value;
+    var tenure=document.getElementById('tenure').value;
+    var roomType=document.getElementById('roomType').value;
+    var advance=document.getElementById('advance').value;
     var hostelId=document.getElementById('hostelId').value.trim();
     var valid=true;
+    
     if(!name){setError('name',true);showToast('Full name is required','error');valid=false;}else setError('name',false);
+    if(!email){setError('email',true);showToast('Email address is required','error');valid=false;}
+    else if(!/^[^\\s@]+@([^\\s@]+\\.)+[^\\s@]+$/.test(email)){setError('email',true);showToast('Enter valid email address','error');valid=false;}
+    else setError('email',false);
     if(!mobile){setError('mobile',true);if(valid)showToast('Mobile number is required','error');valid=false;}
     else if(!/^\\d{10}$/.test(mobile)){setError('mobile',true);if(valid)showToast('Enter valid 10-digit mobile number','error');valid=false;}
     else setError('mobile',false);
+    if(!roomNo){setError('roomNo',true);showToast('Room number is required','error');valid=false;}else setError('roomNo',false);
+    if(!joiningDate){setError('joiningDate',true);showToast('Joining date is required','error');valid=false;}else setError('joiningDate',false);
+    if(!tenure){setError('tenure',true);showToast('Tenure selection is required','error');valid=false;}else setError('tenure',false);
+    if(!roomType){setError('roomType',true);showToast('Room type selection is required','error');valid=false;}else setError('roomType',false);
+    if(advance === '' || advance === null){setError('advance',true);showToast('Advance amount is required','error');valid=false;}
+    else if(isNaN(advance) || advance < 0){setError('advance',true);showToast('Advance amount must be a valid number greater than or equal to 0','error');valid=false;}
+    else setError('advance',false);
+    
     if(!valid)return;
     var btn=document.getElementById('submitBtn'),sp=document.getElementById('spinner'),bi=document.getElementById('bi'),bt=document.getElementById('bt');
     btn.disabled=true;sp.style.display='block';bi.style.display='none';bt.textContent='Submitting...';
     var fd=new FormData();
-    fd.append('hostelId',hostelId);fd.append('name',name);fd.append('mobile',mobile);
+    fd.append('hostelId',hostelId);
+    fd.append('name',name);
+    fd.append('email',email);
+    fd.append('mobile',mobile);
+    fd.append('roomNo',roomNo);
+    fd.append('joiningDate',joiningDate);
+    fd.append('tenure',tenure);
+    fd.append('roomType',roomType);
+    fd.append('advance',advance);
+    
     var en=document.getElementById('en').value.trim();if(en)fd.append('emergencyNumber',en);
     var a=document.getElementById('aadhar').files[0],ic=document.getElementById('idCard').files[0],pi=document.getElementById('profileImage').files[0];
     if(a)fd.append('aadhar',a);if(ic)fd.append('idCard',ic);if(pi)fd.append('profileImage',pi);
@@ -449,19 +536,19 @@ export const createHostel = async (req, res) => {
       );
     }
 
-  
-        // Generate QR code
+
+    // Generate QR code
     const baseUrl = getBaseUrl(req);
-    const formUrl = `${baseUrl}/api/Admin/form/${hostel._id}`;
+    const formUrl = `${baseUrl}/api/Admin/hostel/${hostel._id}/qrcode`;
     const qrCodeDataURL = await QRCode.toDataURL(formUrl, {
       errorCorrectionLevel: 'H',
       margin: 2,
       width: 400
     });
-    
+
     hostel.qrCode = qrCodeDataURL;
     await hostel.save();
-    
+
     return res.status(201).json({
       success: true,
       message: "Created successfully",
@@ -487,7 +574,7 @@ export const serveFormPage = async (req, res) => {
   try {
     const { hostelId } = req.params;
     console.log("📝 QR scanned — serving form for hostel:", hostelId);
- 
+
     const hostel = await Hostel.findById(hostelId);
     if (!hostel) {
       return res.status(404).send(`
@@ -497,7 +584,7 @@ export const serveFormPage = async (req, res) => {
         </body></html>
       `);
     }
- 
+
     console.log("✅ Serving form for:", hostel.name);
     res.setHeader("Content-Type", "text/html");
     res.send(generateFormHTML(hostelId));
@@ -507,28 +594,18 @@ export const serveFormPage = async (req, res) => {
   }
 };
 
-// ✅ GET ALL
 export const getAllHostels = async (req, res) => {
   try {
     const { type } = req.query;
-
-    // ✅ Filter hostels (optional)
     const query = type ? { "sharings.type": type } : {};
-
     const hostels = await Hostel.find(query).sort({ createdAt: -1 });
 
     const response = hostels.map(hostel => {
-
-      // ✅ Filter sharings only
       let filteredSharings = hostel.sharings;
-
       if (type) {
-        filteredSharings = hostel.sharings.filter(
-          s => s.type === type
-        );
+        filteredSharings = hostel.sharings.filter(s => s.type === type);
       }
 
-      // ✅ Unique types
       const roomTypes = type
         ? [type]
         : [...new Set(hostel.sharings.map(s => s.type))];
@@ -538,33 +615,24 @@ export const getAllHostels = async (req, res) => {
         categoryId: hostel.categoryId,
         adminId: hostel.adminId,
         vendorId: hostel.vendorId,
-
         name: hostel.name,
         rating: hostel.rating,
         address: hostel.address,
         monthlyAdvance: hostel.monthlyAdvance,
-
         latitude: hostel.location.coordinates[1],
         longitude: hostel.location.coordinates[0],
-
-        // ✅ only AC / Non-AC
         type: roomTypes,
-
-        // ✅ ONLY FILTERED ROOMS (IMPORTANT)
         rooms: {
           ac: type === "AC"
             ? filteredSharings
             : filteredSharings.filter(s => s.type === "AC"),
-
           nonAc: type === "Non-AC"
             ? filteredSharings
             : filteredSharings.filter(s => s.type === "Non-AC")
         },
-
-        images: hostel.images.map(
-          img => `${req.protocol}://${req.get("host")}/${img}`
-        ),
-
+        images: hostel.images.map(img => `${req.protocol}://${req.get("host")}/${img}`),
+        qrCode: hostel.qrCode, // Add QR code
+        qrUrl: `${getBaseUrl(req)}/api/Admin/hostel/${hostel._id}/qrcode`, // Add QR URL
         createdAt: hostel.createdAt,
         updatedAt: hostel.updatedAt
       };
@@ -585,8 +653,6 @@ export const getAllHostels = async (req, res) => {
 };
 
 
-
-// ✅ GET BY ID
 export const getHostelById = async (req, res) => {
   try {
     const hostel = await Hostel.findById(req.params.id);
@@ -595,6 +661,7 @@ export const getHostelById = async (req, res) => {
       return res.status(404).json({ success: false, message: "Not found" });
     }
 
+    // Make sure you're using the updated formatHostel function
     res.json({ success: true, hostel: formatHostel(hostel, req) });
 
   } catch (err) {
@@ -604,7 +671,6 @@ export const getHostelById = async (req, res) => {
 
 
 
-// ✅ GET BY VENDOR
 export const getHostelsByVendorId = async (req, res) => {
   try {
     const hostels = await Hostel.find({ vendorId: req.params.vendorId });
@@ -612,7 +678,7 @@ export const getHostelsByVendorId = async (req, res) => {
     res.json({
       success: true,
       count: hostels.length,
-      hostels: hostels.map(h => formatHostel(h, req))
+      hostels: hostels.map(h => formatHostel(h, req)) // This will now include QR code
     });
 
   } catch (err) {
@@ -620,9 +686,6 @@ export const getHostelsByVendorId = async (req, res) => {
   }
 };
 
-
-
-// ✅ GET BY ADMIN
 export const getHostelsByAdminId = async (req, res) => {
   try {
     const hostels = await Hostel.find({ adminId: req.params.adminId });
@@ -630,13 +693,15 @@ export const getHostelsByAdminId = async (req, res) => {
     res.json({
       success: true,
       count: hostels.length,
-      hostels: hostels.map(h => formatHostel(h, req))
+      hostels: hostels.map(h => formatHostel(h, req)) // This will now include QR code
     });
 
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+
 
 
 
@@ -995,33 +1060,106 @@ export const deleteBannerById = async (req, res) => {
 
 
 
- 
+
 // =============================================================================
 //  FORM SUBMISSION  ← HTML form POSTs here after QR scan
 // =============================================================================
 export const submitForm = async (req, res) => {
   try {
     console.log("📝 Form submission received");
-    const { name, mobile, emergencyNumber, hostelId } = req.body;
- 
-    if (!name || !mobile || !hostelId)
-      return res.status(400).json({ success: false, message: "Name, mobile, and hostelId are required" });
- 
-    const aadhar       = req.files?.aadhar        ? `uploads/${req.files.aadhar[0].filename}`        : null;
-    const idCard       = req.files?.idCard         ? `uploads/${req.files.idCard[0].filename}`         : null;
-    const profileImage = req.files?.profileImage   ? `uploads/${req.files.profileImage[0].filename}`  : null;
- 
-    // ✅ FormUser.create works because it's a default import now
-    const form = await FormUser.create({ hostelId, name, mobile, emergencyNumber, aadhar, idCard, profileImage });
+    const {
+      name,
+      email,
+      mobile,
+      emergencyNumber,
+      hostelId,
+      roomNo,
+      joiningDate,
+      tenure,
+      roomType,
+      advance
+    } = req.body;
+
+    // Validate required fields
+    if (!name || !email || !mobile || !hostelId || !roomNo || !joiningDate || !tenure || !roomType || !advance) {
+      return res.status(400).json({
+        success: false,
+        message: "All required fields must be filled: name, email, mobile, hostelId, roomNo, joiningDate, tenure, roomType, advance"
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a valid email address"
+      });
+    }
+
+    // Validate tenure enum
+    if (!['monthly', 'daily'].includes(tenure)) {
+      return res.status(400).json({
+        success: false,
+        message: "Tenure must be either 'monthly' or 'daily'"
+      });
+    }
+
+    // Validate roomType enum
+    if (!['AC', 'Non-AC'].includes(roomType)) {
+      return res.status(400).json({
+        success: false,
+        message: "Room type must be either 'AC' or 'Non-AC'"
+      });
+    }
+
+    // Validate advance is a number
+    const advanceAmount = Number(advance);
+    if (isNaN(advanceAmount) || advanceAmount < 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Advance amount must be a valid number greater than or equal to 0"
+      });
+    }
+
+    // Handle file uploads
+    const aadhar = req.files?.aadhar ? `uploads/${req.files.aadhar[0].filename}` : null;
+    const idCard = req.files?.idCard ? `uploads/${req.files.idCard[0].filename}` : null;
+    const profileImage = req.files?.profileImage ? `uploads/${req.files.profileImage[0].filename}` : null;
+
+    // Create form with new fields
+    const form = await FormUser.create({
+      hostelId,
+      name,
+      email,
+      mobile,
+      emergencyNumber,
+      aadhar,
+      idCard,
+      profileImage,
+      roomNo,
+      joiningDate: new Date(joiningDate),
+      tenure,
+      roomType,
+      advance: advanceAmount
+    });
+
     console.log("✅ Form saved:", form._id);
- 
-    res.json({ success: true, message: "Form submitted successfully", data: form });
+
+    res.json({
+      success: true,
+      message: "Form submitted successfully",
+      data: form
+    });
   } catch (err) {
     console.error("❌ Form error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
- 
+
 // =============================================================================
 //  QR CODE — standalone endpoints
 // =============================================================================
@@ -1033,25 +1171,25 @@ export const generateQRCode = async (req, res) => {
     res.status(200).json({ success: true, qrCode: qrCodeDataURL });
   } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 };
- 
+
 export const getQRCodeImage = async (req, res) => {
   try {
     const { hostelId } = req.params;
     const hostel = await Hostel.findById(hostelId);
-    
+
     if (!hostel) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Hostel not found" 
+      return res.status(404).json({
+        success: false,
+        message: "Hostel not found"
       });
     }
 
     const baseUrl = getBaseUrl(req);
     const formUrl = `${baseUrl}/api/Admin/form/${hostelId}`;
-    
+
     console.log("📱 Generating QR code for URL:", formUrl);
     console.log("🏠 Hostel:", hostel.name);
-    
+
     const qrBuffer = await QRCode.toBuffer(formUrl, {
       errorCorrectionLevel: 'H',
       margin: 2,
@@ -1061,16 +1199,16 @@ export const getQRCodeImage = async (req, res) => {
         light: '#ffffff'
       }
     });
-    
+
     res.setHeader('Content-Type', 'image/png');
     res.setHeader('Content-Disposition', `inline; filename="qr-${hostel.name.replace(/\s/g, '-')}.png"`);
     res.send(qrBuffer);
-    
+
   } catch (error) {
     console.error("QR generation error:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: error.message 
+    res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 };
@@ -1080,7 +1218,7 @@ export const showQRCodePage = async (req, res) => {
   try {
     const { hostelId } = req.params;
     const hostel = await Hostel.findById(hostelId);
-    
+
     if (!hostel) {
       return res.status(404).send(`
         <html>
@@ -1094,7 +1232,7 @@ export const showQRCodePage = async (req, res) => {
     const baseUrl = getBaseUrl(req);
     const qrImageUrl = `${baseUrl}/api/Admin/hostel/${hostelId}/qrcode`;
     const formUrl = `${baseUrl}/api/Admin/form/${hostelId}`;
-    
+
     res.send(`
       <!DOCTYPE html>
       <html>
@@ -1313,17 +1451,17 @@ export const getQRCodeForHostel = async (req, res) => {
   try {
     const { hostelId } = req.params;
     const hostel = await Hostel.findById(hostelId);
-    
+
     if (!hostel) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Hostel not found" 
+      return res.status(404).json({
+        success: false,
+        message: "Hostel not found"
       });
     }
 
     const baseUrl = getBaseUrl(req);
     const formUrl = `${baseUrl}/api/Admin/form/${hostelId}`;
-    
+
     // Generate QR code as PNG buffer
     const qrBuffer = await QRCode.toBuffer(formUrl, {
       errorCorrectionLevel: 'H',
@@ -1334,17 +1472,17 @@ export const getQRCodeForHostel = async (req, res) => {
         light: '#ffffff'
       }
     });
-    
+
     // Set headers for image download
     res.setHeader('Content-Type', 'image/png');
     res.setHeader('Content-Disposition', `attachment; filename="qr-${hostel.name.replace(/\s/g, '-')}.png"`);
     res.send(qrBuffer);
-    
+
   } catch (error) {
     console.error("QR generation error:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: error.message 
+    res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 };
@@ -1353,20 +1491,20 @@ export const getHostelQRCodeImage = async (req, res) => {
   try {
     const { hostelId } = req.params;
     const hostel = await Hostel.findById(hostelId);
-    
+
     if (!hostel) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Hostel not found" 
+      return res.status(404).json({
+        success: false,
+        message: "Hostel not found"
       });
     }
 
     // Get the form URL
     const baseUrl = getBaseUrl(req);
     const formUrl = `${baseUrl}/api/Admin/form/${hostelId}`;
-    
+
     console.log("Generating QR code for URL:", formUrl);
-    
+
     // Generate QR code as PNG buffer
     const qrBuffer = await QRCode.toBuffer(formUrl, {
       errorCorrectionLevel: 'H',
@@ -1377,17 +1515,17 @@ export const getHostelQRCodeImage = async (req, res) => {
         light: '#ffffff'
       }
     });
-    
+
     // Set headers to display as image
     res.setHeader('Content-Type', 'image/png');
     res.setHeader('Content-Disposition', `inline; filename="qr-${hostel.name.replace(/\s/g, '-')}.png"`);
     res.send(qrBuffer);
-    
+
   } catch (error) {
     console.error("QR generation error:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: error.message 
+    res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 };
@@ -1400,8 +1538,8 @@ export const getAllFormSubmissions = async (req, res) => {
     const forms = await FormUser.find()
       .populate('hostelId', 'name address') // Get hostel details
       .sort({ submittedAt: -1 }); // Latest first
-    
-    // Format the response
+
+    // Format the response with new fields
     const formattedForms = forms.map(form => ({
       _id: form._id,
       hostel: {
@@ -1411,8 +1549,16 @@ export const getAllFormSubmissions = async (req, res) => {
       },
       guest: {
         name: form.name,
+        email: form.email,
         mobile: form.mobile,
         emergencyNumber: form.emergencyNumber || 'Not provided'
+      },
+      stayDetails: {
+        roomNo: form.roomNo,
+        joiningDate: form.joiningDate,
+        tenure: form.tenure,
+        roomType: form.roomType,
+        advance: form.advance
       },
       documents: {
         aadhar: form.aadhar ? getImageUrl(req, form.aadhar) : null,
@@ -1421,13 +1567,13 @@ export const getAllFormSubmissions = async (req, res) => {
       },
       submittedAt: form.submittedAt
     }));
-    
+
     res.status(200).json({
       success: true,
       count: forms.length,
       submissions: formattedForms
     });
-    
+
   } catch (error) {
     console.error("Error fetching forms:", error);
     res.status(500).json({
@@ -1441,11 +1587,11 @@ export const getAllFormSubmissions = async (req, res) => {
 export const getFormSubmissionsByHostel = async (req, res) => {
   try {
     const { hostelId } = req.params;
-    
+
     const forms = await FormUser.find({ hostelId })
       .populate('hostelId', 'name address')
       .sort({ submittedAt: -1 });
-    
+
     const formattedForms = forms.map(form => ({
       _id: form._id,
       hostel: {
@@ -1455,8 +1601,16 @@ export const getFormSubmissionsByHostel = async (req, res) => {
       },
       guest: {
         name: form.name,
+        email: form.email,
         mobile: form.mobile,
         emergencyNumber: form.emergencyNumber || 'Not provided'
+      },
+      stayDetails: {
+        roomNo: form.roomNo,
+        joiningDate: form.joiningDate,
+        tenure: form.tenure,
+        roomType: form.roomType,
+        advance: form.advance
       },
       documents: {
         aadhar: form.aadhar ? getImageUrl(req, form.aadhar) : null,
@@ -1465,14 +1619,14 @@ export const getFormSubmissionsByHostel = async (req, res) => {
       },
       submittedAt: form.submittedAt
     }));
-    
+
     res.status(200).json({
       success: true,
       count: forms.length,
       hostelId: hostelId,
       submissions: formattedForms
     });
-    
+
   } catch (error) {
     console.error("Error fetching forms by hostel:", error);
     res.status(500).json({

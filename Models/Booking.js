@@ -96,13 +96,12 @@ const bookingSchema = new mongoose.Schema({
   },
   roomType: {
     type: String,
-    enum: ["AC", "NON-AC"],
+    enum: ["AC", "Non-AC"],
     required: true
   },
   shareType: {
     type: String,
-    enum: ["1 Share", "2 Share", "3 Share", "4 Share", "5 Share"],
-    required: true
+    required: true  
   },
   bookingType: {
     type: String,

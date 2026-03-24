@@ -832,7 +832,6 @@ const generateBookingReference = () => {
 
 export const createBooking = async (req, res) => {
   try {
-
     const {
       hostelId,
       userId,
@@ -869,20 +868,22 @@ export const createBooking = async (req, res) => {
       });
     }
 
-    // Find share type
+    // Normalize roomType to match enum (AC/Non-AC)
+    const normalizedRoomType = roomType === "Non-AC" ? "Non-AC" : "AC";
+    
+    // Find share type from hostel's sharings array
     const selectedSharing = hostel.sharings.find(
-      (s) => s.shareType === shareType
+      (s) => s.type === normalizedRoomType && s.shareType === shareType
     );
 
     if (!selectedSharing) {
       return res.status(400).json({
         success: false,
-        message: "Share type not available"
+        message: `Share type "${shareType}" not available for ${normalizedRoomType} rooms`
       });
     }
 
     const parsedStartDate = new Date(startDate);
-
     if (isNaN(parsedStartDate.getTime())) {
       return res.status(400).json({
         success: false,
@@ -892,17 +893,13 @@ export const createBooking = async (req, res) => {
 
     let totalAmount = 0;
     let parsedEndDate = null;
+    let pricePerDay = null;
 
     // -------------------------
     // MONTHLY BOOKING LOGIC
     // -------------------------
     if (bookingType === "monthly") {
-
-      const monthlyPrice =
-        roomType === "AC"
-          ? selectedSharing.acMonthlyPrice
-          : selectedSharing.nonAcMonthlyPrice;
-
+      const monthlyPrice = selectedSharing.monthlyPrice;
       const monthlyAdvance = hostel.monthlyAdvance || 0;
 
       // Check existing active booking
@@ -924,18 +921,22 @@ export const createBooking = async (req, res) => {
       const bookingData = {
         hostelId,
         userId,
-        roomType,
+        roomType: normalizedRoomType,
         shareType,
         bookingType,
         startDate: parsedStartDate,
         totalAmount,
         monthlyAdvance: previousBooking ? 0 : monthlyAdvance,
         status: "confirmed",
-        bookingReference: generateBookingReference()
+        bookingReference: generateBookingReference(),
+        paymentStatus: "pending"
       };
 
       const booking = new Booking(bookingData);
       await booking.save();
+
+      // UPDATE USER'S HOSTEL ID
+      await User.findByIdAndUpdate(userId, { hostelId: hostelId });
 
       const populatedBooking = await Booking.findById(booking._id)
         .populate("userId", "name mobileNumber")
@@ -952,7 +953,6 @@ export const createBooking = async (req, res) => {
     // DAILY BOOKING
     // -------------------------
     if (bookingType === "daily") {
-
       if (!endDate) {
         return res.status(400).json({
           success: false,
@@ -961,7 +961,6 @@ export const createBooking = async (req, res) => {
       }
 
       parsedEndDate = new Date(endDate);
-
       if (isNaN(parsedEndDate.getTime())) {
         return res.status(400).json({
           success: false,
@@ -969,11 +968,7 @@ export const createBooking = async (req, res) => {
         });
       }
 
-      const dailyPrice =
-        roomType === "AC"
-          ? selectedSharing.acDailyPrice
-          : selectedSharing.nonAcDailyPrice;
-
+      const dailyPrice = selectedSharing.dailyPrice;
       const days = Math.ceil(
         (parsedEndDate - parsedStartDate) / (1000 * 60 * 60 * 24)
       );
@@ -986,23 +981,28 @@ export const createBooking = async (req, res) => {
       }
 
       totalAmount = dailyPrice * days;
+      pricePerDay = dailyPrice;
 
       const bookingData = {
         hostelId,
         userId,
-        roomType,
+        roomType: normalizedRoomType,
         shareType,
         bookingType,
         startDate: parsedStartDate,
         endDate: parsedEndDate,
-        pricePerDay: dailyPrice,
+        pricePerDay,
         totalAmount,
         status: "confirmed",
-        bookingReference: generateBookingReference()
+        bookingReference: generateBookingReference(),
+        paymentStatus: "pending"
       };
 
       const booking = new Booking(bookingData);
       await booking.save();
+
+      // UPDATE USER'S HOSTEL ID
+      await User.findByIdAndUpdate(userId, { hostelId: hostelId });
 
       const populatedBooking = await Booking.findById(booking._id)
         .populate("userId", "name mobileNumber")
@@ -1015,17 +1015,75 @@ export const createBooking = async (req, res) => {
       });
     }
 
-  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid booking type. Must be 'monthly' or 'daily'"
+    });
 
+  } catch (error) {
     console.error("Booking error:", error);
+    
+    // Handle duplicate key error
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "Duplicate booking reference. Please try again."
+      });
+    }
 
     res.status(500).json({
       success: false,
       message: error.message
     });
-
   }
 };
+
+
+export const getUserBookedHostel = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findById(userId).populate('hostelId', 'name address images rating monthlyAdvance');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    if (!user.hostelId) {
+      return res.status(200).json({
+        success: true,
+        message: "User has not booked any hostel yet",
+        hostel: null
+      });
+    }
+
+    // Format hostel data with full image URLs
+    const hostelData = {
+      id: user.hostelId._id,
+      name: user.hostelId.name,
+      address: user.hostelId.address,
+      rating: user.hostelId.rating,
+      monthlyAdvance: user.hostelId.monthlyAdvance,
+      images: user.hostelId.images.map(img => getImageUrl(req, img))
+    };
+
+    res.status(200).json({
+      success: true,
+      hostel: hostelData
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+
 // // Get all bookings with optional filters and pagination
 // export const getAllBookings = async (req, res) => {
 //   try {
