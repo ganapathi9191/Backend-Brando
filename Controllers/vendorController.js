@@ -3,7 +3,6 @@ import Hostel from '../Models/Hostel.js';
 import Vendor from "../Models/Vendor.js";
 import jwt from "jsonwebtoken";
 import VendorBanner from "../Models/vendorBannerModel.js";
-import Notification from "../Models/Notification.js";
 
 // image url helper
 const getImageUrl = (req, imgPath) => {
@@ -12,7 +11,37 @@ const getImageUrl = (req, imgPath) => {
 };
 
 
+// Helper function to create vendor notifications
+export const createVendorNotification = async (vendorId, title, message, type = "info", metadata = {}) => {
+  try {
+    if (!vendorId) return null;
+    
+    const vendor = await Vendor.findById(vendorId);
+    if (!vendor) return null;
 
+    const notification = {
+      title,
+      message,
+      type,
+      read: false,
+      metadata,
+      createdAt: new Date()
+    };
+
+    vendor.notifications.push(notification);
+    await vendor.save();
+    
+    return vendor.notifications[vendor.notifications.length - 1];
+  } catch (err) {
+    console.error("Error creating vendor notification:", err);
+    return null;
+  }
+};
+
+/**
+ * GET ALL NOTIFICATIONS FOR A VENDOR
+ * GET /api/vendor/:vendorId/notifications
+ */
 
 // REGISTER VENDOR
 export const registerVendor = async (req, res) => {
@@ -226,14 +255,12 @@ export const updateVendorProfile = async (req, res) => {
 
     await vendor.save();
 
+      // Add notification for profile update
     if (changes.length > 0) {
-      await createNotification(
+      await addVendorNotification(
         vendor._id,
-        "📝 Profile Updated",
-        `Your profile has been updated successfully. Changed: ${changes.join(", ")}.`,
-        "system",
-        vendor._id,
-        "Vendor"
+        `Your profile has been updated: ${changes.join(", ")} was successfully changed.`,
+        'info'
       );
     }
 
@@ -606,6 +633,30 @@ export const getBookingsByVendor = async (req, res) => {
       });
     }
 
+    // Check for new bookings and create notifications
+    // This could be done based on last checked time, but for simplicity, we'll check recent bookings
+    const recentBookings = bookings.filter(booking => {
+      const hoursSinceCreation = (Date.now() - new Date(booking.createdAt)) / (1000 * 60 * 60);
+      return hoursSinceCreation < 24; // Notify about bookings from last 24 hours
+    });
+
+    // Create notifications for recent bookings (avoid duplicates)
+    for (const booking of recentBookings) {
+      // Check if notification already exists for this booking
+      const notificationExists = vendor.notifications.some(n => 
+        n.message.includes(booking.bookingReference) && 
+        new Date(n.createdAt) > new Date(booking.createdAt).getTime() - 60000
+      );
+      
+      if (!notificationExists) {
+        const hostel = hostels.find(h => h._id.toString() === booking.hostelId.toString());
+        await createVendorNotification(
+          vendorId,
+          `📅 New booking #${booking.bookingReference || booking._id} from ${booking.userId?.name || 'Guest'} for ${hostel?.name || 'hostel'}`
+        );
+      }
+    }
+
     // Step 3: Format the response
     const formattedBookings = bookings.map(booking => ({
       _id: booking._id,
@@ -627,7 +678,7 @@ export const getBookingsByVendor = async (req, res) => {
         id: vendor._id,
         name: vendor.name,
         email: vendor.email,
-        mobile: vendor.mobile
+        mobile: vendor.mobileNumber
       },
       hostels: hostels.map(h => ({
         id: h._id,
@@ -645,154 +696,290 @@ export const getBookingsByVendor = async (req, res) => {
   }
 };
 
-// ------------------------
-// CREATE NOTIFICATION (INTERNAL USE)
-// Import and call this from bookings, hostel create, etc.
-// ------------------------
-export const createVendorNotification = async (vendorId, message, type = "info") => {
-  try {
-    const vendor = await Vendor.findById(vendorId);
-    if (!vendor) {
-      console.error("❌ Vendor not found:", vendorId);
-      return;
-    }
- 
-    vendor.notifications.push({ message, type, read: false });
-    await vendor.save();
- 
-    console.log("✅ Notification saved for vendor:", vendorId);
-  } catch (err) {
-    console.error("❌ Error creating vendor notification:", err.message);
-  }
-};
- 
-// ------------------------
-// TEST ENDPOINT
-// POST /api/vendors/:vendorId/notifications/test
-// Use this in Postman to verify the pipeline works end-to-end
-// ------------------------
-export const testCreateNotification = async (req, res) => {
-  try {
-    const { vendorId } = req.params;
- 
-    const vendor = await Vendor.findById(vendorId);
-    if (!vendor) {
-      return res.status(404).json({ success: false, message: "Vendor not found" });
-    }
- 
-    vendor.notifications.push({
-      message: "Test notification at " + new Date().toISOString(),
-      type: "info",
-      read: false
-    });
- 
-    await vendor.save();
- 
-    res.json({
-      success: true,
-      message: "Test notification created",
-      notifications: vendor.notifications
-    });
- 
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-};
- 
-// ------------------------
-// GET ALL NOTIFICATIONS
-// GET /api/vendors/:vendorId/notifications
-// ------------------------
+
+
+/**
+ * GET ALL NOTIFICATIONS FOR A VENDOR
+ * GET /api/vendor/:vendorId/notifications
+ */
 export const getVendorNotifications = async (req, res) => {
   try {
     const { vendorId } = req.params;
- 
+    const { page = 1, limit = 500000, type, read } = req.query;
+
+    // Check if vendor exists
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) {
-      return res.status(404).json({ success: false, message: "Vendor not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Vendor not found"
+      });
     }
- 
-    res.json({
+
+    let notifications = [...vendor.notifications];
+    
+    // Filter by type
+    if (type && type !== 'all') {
+      notifications = notifications.filter(n => n.type === type);
+    }
+    
+    // Filter by read status
+    if (read !== undefined) {
+      const isRead = read === 'true';
+      notifications = notifications.filter(n => n.read === isRead);
+    }
+    
+    // Sort by newest first
+    notifications.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    
+    // Pagination
+    const total = notifications.length;
+    const startIndex = (parseInt(page) - 1) * parseInt(limit);
+    const endIndex = startIndex + parseInt(limit);
+    const paginatedNotifications = notifications.slice(startIndex, endIndex);
+    
+    // Calculate stats
+    const unreadCount = vendor.notifications.filter(n => !n.read).length;
+    const totalCount = vendor.notifications.length;
+    
+    res.status(200).json({
       success: true,
-      count: vendor.notifications.length,
-      notifications: vendor.notifications
+      data: {
+        notifications: paginatedNotifications,
+        stats: {
+          total: totalCount,
+          unread: unreadCount,
+          read: totalCount - unreadCount
+        },
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(total / parseInt(limit)),
+          totalItems: total,
+          itemsPerPage: parseInt(limit)
+        }
+      }
     });
- 
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    
+  } catch (error) {
+    console.error("Error getting vendor notifications:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
- 
-// ------------------------
-// MARK ONE AS READ
-// PATCH /api/vendors/:vendorId/notifications/:notificationId/read
-// ------------------------
-export const markVendorNotificationAsRead = async (req, res) => {
+
+/**
+ * MARK NOTIFICATION AS READ
+ * PUT /api/vendor/:vendorId/notifications/:notificationId/read
+ */
+export const markNotificationRead = async (req, res) => {
   try {
     const { vendorId, notificationId } = req.params;
- 
+    
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) {
-      return res.status(404).json({ success: false, message: "Vendor not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Vendor not found"
+      });
     }
- 
+    
+    // Find notification by _id
     const notification = vendor.notifications.id(notificationId);
     if (!notification) {
-      return res.status(404).json({ success: false, message: "Notification not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Notification not found"
+      });
     }
- 
+    
     notification.read = true;
     await vendor.save();
- 
-    res.json({ success: true, message: "Notification marked as read" });
- 
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    
+    res.status(200).json({
+      success: true,
+      message: "Notification marked as read",
+      notification
+    });
+    
+  } catch (error) {
+    console.error("Error marking notification read:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
- 
-// ------------------------
-// MARK ALL AS READ
-// PATCH /api/vendors/:vendorId/notifications/read-all
-// ------------------------
-export const markAllVendorNotificationsAsRead = async (req, res) => {
+
+/**
+ * MARK ALL NOTIFICATIONS AS READ
+ * PUT /api/vendor/:vendorId/notifications/read-all
+ */
+export const markAllNotificationsRead = async (req, res) => {
   try {
     const { vendorId } = req.params;
- 
+    
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) {
-      return res.status(404).json({ success: false, message: "Vendor not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Vendor not found"
+      });
     }
- 
-    vendor.notifications.forEach(n => { n.read = true; });
+    
+    // Mark all unread notifications as read
+    let updatedCount = 0;
+    vendor.notifications.forEach(notification => {
+      if (!notification.read) {
+        notification.read = true;
+        updatedCount++;
+      }
+    });
+    
     await vendor.save();
- 
-    res.json({ success: true, message: "All notifications marked as read" });
- 
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    
+    res.status(200).json({
+      success: true,
+      message: `${updatedCount} notifications marked as read`,
+      updatedCount
+    });
+    
+  } catch (error) {
+    console.error("Error marking all notifications read:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
- 
-// ------------------------
-// CLEAR ALL NOTIFICATIONS
-// DELETE /api/vendors/:vendorId/notifications
-// ------------------------
-export const clearVendorNotifications = async (req, res) => {
+
+/**
+ * DELETE SINGLE NOTIFICATION
+ * DELETE /api/vendor/:vendorId/notifications/:notificationId
+ */
+export const deleteVendorNotification = async (req, res) => {
   try {
-    const { vendorId } = req.params;
- 
+    const { vendorId, notificationId } = req.params;
+    
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) {
-      return res.status(404).json({ success: false, message: "Vendor not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Vendor not found"
+      });
     }
- 
-    vendor.notifications = [];
+    
+    // Find and remove notification
+    const notification = vendor.notifications.id(notificationId);
+    if (!notification) {
+      return res.status(404).json({
+        success: false,
+        message: "Notification not found"
+      });
+    }
+    
+    notification.deleteOne();
     await vendor.save();
- 
-    res.json({ success: true, message: "All notifications cleared" });
- 
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    
+    res.status(200).json({
+      success: true,
+      message: "Notification deleted successfully"
+    });
+    
+  } catch (error) {
+    console.error("Error deleting notification:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * DELETE MULTIPLE NOTIFICATIONS (BULK DELETE)
+ * DELETE /api/vendor/:vendorId/notifications/bulk-delete
+ * Body: { notificationIds: ["id1", "id2", ...] }
+ */
+export const bulkDeleteVendorNotifications = async (req, res) => {
+  try {
+    const { vendorId } = req.params;
+    const { notificationIds } = req.body;
+    
+    if (!notificationIds || !Array.isArray(notificationIds) || notificationIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "notificationIds array is required"
+      });
+    }
+    
+    const vendor = await Vendor.findById(vendorId);
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        message: "Vendor not found"
+      });
+    }
+    
+    // Remove specified notifications
+    let deletedCount = 0;
+    notificationIds.forEach(id => {
+      const notification = vendor.notifications.id(id);
+      if (notification) {
+        notification.deleteOne();
+        deletedCount++;
+      }
+    });
+    
+    await vendor.save();
+    
+    res.status(200).json({
+      success: true,
+      message: `${deletedCount} notifications deleted successfully`,
+      deletedCount,
+      totalRequested: notificationIds.length
+    });
+    
+  } catch (error) {
+    console.error("Error bulk deleting notifications:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+
+
+/**
+ * GET UNREAD NOTIFICATIONS COUNT
+ * GET /api/vendor/:vendorId/notifications/unread-count
+ */
+export const getUnreadNotificationsCount = async (req, res) => {
+  try {
+    const { vendorId } = req.params;
+    
+    const vendor = await Vendor.findById(vendorId);
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        message: "Vendor not found"
+      });
+    }
+    
+    const unreadCount = vendor.notifications.filter(n => !n.read).length;
+    
+    res.status(200).json({
+      success: true,
+      unreadCount,
+      totalCount: vendor.notifications.length
+    });
+    
+  } catch (error) {
+    console.error("Error getting unread count:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };

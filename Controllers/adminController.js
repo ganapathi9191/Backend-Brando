@@ -4,7 +4,6 @@ import Banner from "../Models/Banner.js";
 import Admin from "../Models/Admin.js";
 import Vendor from "../Models/Vendor.js";
 import jwt from "jsonwebtoken";
-import Notification from "../Models/Notification.js";
 import QRCode from "qrcode";
 import fs from "fs";
 import FormUser from "../Models/FormUser.js";
@@ -26,23 +25,33 @@ const getBaseUrl = (req) => {
 };
 
 
-export const createVendorNotification = async (vendorId, message, type = "info") => {
+
+// Helper function to create vendor notifications
+export const createVendorNotification = async (vendorId, title, message, type = "info", metadata = {}) => {
   try {
+    if (!vendorId) return null;
+    
     const vendor = await Vendor.findById(vendorId);
-    if (!vendor) {
-      console.error("❌ Vendor not found:", vendorId);
-      return;
-    }
+    if (!vendor) return null;
 
-    vendor.notifications.push({ message, type, read: false });
+    const notification = {
+      title,
+      message,
+      type,
+      read: false,
+      metadata,
+      createdAt: new Date()
+    };
+
+    vendor.notifications.push(notification);
     await vendor.save();
-
-    console.log("✅ Notification saved for vendor:", vendorId);
+    
+    return vendor.notifications[vendor.notifications.length - 1];
   } catch (err) {
-    console.error("❌ Error creating vendor notification:", err.message);
+    console.error("Error creating vendor notification:", err);
+    return null;
   }
 };
-
 
 // helper
 const formatHostel = (hostel, req) => {
@@ -528,13 +537,6 @@ export const createHostel = async (req, res) => {
       }
     });
 
-    if (vendorId) {
-      await createVendorNotification(
-        vendorId,
-        `Your hostel "${name}" has been added to the platform successfully.`,
-        "success"
-      );
-    }
 
 
     // Generate QR code
@@ -548,6 +550,22 @@ export const createHostel = async (req, res) => {
 
     hostel.qrCode = qrCodeDataURL;
     await hostel.save();
+
+        // 🔔 NOTIFICATION: Hostel created
+    if (vendorId) {
+      await createVendorNotification(
+        vendorId,
+        "🏨 New Hostel Created",
+        `Your hostel "${name}" has been successfully created and is now live! QR code has been generated.`,
+        "hostel",
+        {
+          hostelId: hostel._id,
+          hostelName: name,
+          action: "create",
+          sharingsCount: parsed.length
+        }
+      );
+    }
 
     return res.status(201).json({
       success: true,
@@ -800,15 +818,23 @@ export const updateHostelById = async (req, res) => {
         message: "Hostel not found after update"
       });
     }
-
-    // 🔔 NOTIFICATION: Notify vendor about hostel update
-    if (updatedHostel.vendorId) {
+   
+        // 🔔 NOTIFICATION: Hostel updated
+    if (updatedHostel.vendorId && changes.length > 0) {
       await createVendorNotification(
         updatedHostel.vendorId,
-        `Your hostel "${updatedHostel.name}" has been updated successfully.`,
-        "info"
+        "✏️ Hostel Updated",
+        `Your hostel "${updatedHostel.name}" has been updated. Changes: ${changes.join(', ')}`,
+        "hostel",
+        {
+          hostelId: updatedHostel._id,
+          hostelName: updatedHostel.name,
+          action: "update",
+          changes: changes
+        }
       );
     }
+    
 
     // Format and return response
     res.json({
@@ -863,6 +889,22 @@ export const deleteHostelById = async (req, res) => {
         success: false,
         message: `Hostel with ID ${id} not found`,
       });
+    }
+
+        // 🔔 NOTIFICATION: Hostel deleted
+    if (vendorId) {
+      await createVendorNotification(
+        vendorId,
+        "🗑️ Hostel Deleted",
+        `Your hostel "${hostelName}" has been deleted from the system.`,
+        "warning",
+        {
+          hostelId: id,
+          hostelName: hostelName,
+          action: "delete",
+          deletedAt: new Date()
+        }
+      );
     }
 
     res.json({
@@ -1145,6 +1187,31 @@ export const submitForm = async (req, res) => {
     });
 
     console.log("✅ Form saved:", form._id);
+
+
+    
+    // 🔔 NOTIFICATION: New guest registration
+    if (hostel.vendorId) {
+      await createVendorNotification(
+        hostel.vendorId,
+        "👤 New Guest Registration!",
+        `${name} has registered at "${hostel.name}" in Room ${roomNo}. ${tenure === 'monthly' ? 'Monthly' : 'Daily'} stay starting ${new Date(joiningDate).toLocaleDateString()}. Advance: ₹${advance}`,
+        "guest",
+        {
+          formId: form._id,
+          guestName: name,
+          guestMobile: mobile,
+          guestEmail: email,
+          hostelId: hostelId,
+          hostelName: hostel.name,
+          roomNo: roomNo,
+          joiningDate: joiningDate,
+          tenure: tenure,
+          roomType: roomType,
+          advance: advance
+        }
+      );
+    }
 
     res.json({
       success: true,
@@ -1729,7 +1796,30 @@ export const updateFormSubmission = async (req, res) => {
       id,
       updateData,
       { new: true, runValidators: true }
-    ).populate('hostelId', 'name address');
+    ).populate('hostelId', 'name address vendorId');
+
+
+    
+    // 🔔 NOTIFICATION: Guest details updated
+    if (updatedForm.hostelId && updatedForm.hostelId.vendorId && changes.length > 0) {
+      await createVendorNotification(
+        updatedForm.hostelId.vendorId,
+        "✏️ Guest Details Updated",
+        `Guest ${updatedForm.name}'s information has been updated. Changes: ${changes.join(', ')}`,
+        "guest",
+        {
+          formId: updatedForm._id,
+          guestName: updatedForm.name,
+          guestMobile: updatedForm.mobile,
+          hostelId: updatedForm.hostelId._id,
+          hostelName: updatedForm.hostelId.name,
+          roomNo: updatedForm.roomNo,
+          changes: changes,
+          updatedAt: new Date()
+        }
+      );
+    }
+
 
     // Format response
     const formattedResponse = {

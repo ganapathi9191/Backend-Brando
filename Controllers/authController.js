@@ -18,20 +18,27 @@ export const getImageUrl = (req, path) => {
 // Call this from anywhere: bookings, hostel updates, etc.
 // ------------------------
  
+// =============================================
+// VENDOR NOTIFICATION HELPER FUNCTION
+// =============================================
 export const createVendorNotification = async (vendorId, message, type = "info") => {
   try {
     const vendor = await Vendor.findById(vendorId);
-    if (!vendor) return;
- 
+    if (!vendor) return null;
+    
     vendor.notifications.push({
-      message,  
+      message,
       type,
       read: false
     });
- 
+    
     await vendor.save();
+    
+    // Return the newly added notification
+    return vendor.notifications[vendor.notifications.length - 1];
   } catch (err) {
-    console.error("Error creating vendor notification:", err);
+    console.error("❌ Error creating vendor notification:", err);
+    return null;
   }
 };
  
@@ -938,6 +945,31 @@ export const createBooking = async (req, res) => {
       // UPDATE USER'S HOSTEL ID
       await User.findByIdAndUpdate(userId, { hostelId: hostelId });
 
+
+            // 🔔 NOTIFICATION: New booking for vendor
+      if (hostel.vendorId) {
+        await createVendorNotification(
+          hostel.vendorId,
+          "📅 New Monthly Booking!",
+          `${user.name || user.mobileNumber} has booked a ${normalizedRoomType} ${shareType} room at "${hostel.name}" for monthly stay. Amount: ₹${totalAmount}`,
+          "booking",
+          {
+            bookingId: booking._id,
+            bookingReference: booking.bookingReference,
+            userId: userId,
+            userName: user.name || user.mobileNumber,
+            hostelId: hostelId,
+            hostelName: hostel.name,
+            roomType: normalizedRoomType,
+            shareType: shareType,
+            bookingType: "monthly",
+            startDate: parsedStartDate,
+            totalAmount: totalAmount
+          }
+        );
+      }
+
+
       const populatedBooking = await Booking.findById(booking._id)
         .populate("userId", "name mobileNumber")
         .populate("hostelId", "name address");
@@ -1003,6 +1035,34 @@ export const createBooking = async (req, res) => {
 
       // UPDATE USER'S HOSTEL ID
       await User.findByIdAndUpdate(userId, { hostelId: hostelId });
+
+
+      
+      // 🔔 NOTIFICATION: New daily booking for vendor
+      if (hostel.vendorId) {
+        await createVendorNotification(
+          hostel.vendorId,
+          "📅 New Daily Booking!",
+          `${user.name || user.mobileNumber} has booked a ${normalizedRoomType} ${shareType} room at "${hostel.name}" for ${days} days. Amount: ₹${totalAmount}`,
+          "booking",
+          {
+            bookingId: booking._id,
+            bookingReference: booking.bookingReference,
+            userId: userId,
+            userName: user.name || user.mobileNumber,
+            hostelId: hostelId,
+            hostelName: hostel.name,
+            roomType: normalizedRoomType,
+            shareType: shareType,
+            bookingType: "daily",
+            startDate: parsedStartDate,
+            endDate: parsedEndDate,
+            days: days,
+            totalAmount: totalAmount
+          }
+        );
+      }
+
 
       const populatedBooking = await Booking.findById(booking._id)
         .populate("userId", "name mobileNumber")

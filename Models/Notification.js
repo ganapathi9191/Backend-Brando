@@ -1,67 +1,134 @@
 import mongoose from "mongoose";
 
-const notificationSchema = new mongoose.Schema({
-  vendorId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Vendor",
-    required: true,
-    index: true,
+const notificationSchema = new mongoose.Schema(
+  {
+    // Who receives this notification
+    recipientType: {
+      type: String,
+      enum: ["user", "admin", "vendor"],
+      required: true
+    },
+    recipientId: {
+      type: mongoose.Schema.Types.ObjectId,
+      refPath: "recipientType", // Dynamic reference
+      required: true
+    },
+    
+    // Notification content
+    title: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    message: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    
+    // Notification type
+    type: {
+      type: String,
+      enum: ["info", "success", "warning", "error", "booking", "payment", "system", "alert"],
+      default: "info"
+    },
+    
+    // Related entity (optional)
+    entityType: {
+      type: String,
+      enum: ["booking", "hostel", "payment", "banner", "user", "admin", "vendor", "form"],
+      default: null
+    },
+    entityId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null
+    },
+    
+    // Status
+    read: {
+      type: Boolean,
+      default: false
+    },
+    readAt: {
+      type: Date,
+      default: null
+    },
+    
+    // Additional data (for storing extra info)
+    metadata: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {}
+    },
+    
+    // For admin broadcast notifications
+    isBroadcast: {
+      type: Boolean,
+      default: false
+    },
+    broadcastTo: {
+      type: String,
+      enum: ["all_users", "all_vendors", "all_admins", "specific"],
+      default: null
+    },
+    
+    // Expiry (optional)
+    expiresAt: {
+      type: Date,
+      default: null
+    }
   },
-  title: {
-    type: String,
-    required: true,
-  },
-  message: {
-    type: String,
-    required: true,
-  },
-  type: {
-    type: String,
-    enum: ["booking", "hostel", "system", "promotion"],
-    default: "system",
-  },
-  relatedId: {
-    type: mongoose.Schema.Types.ObjectId,
-    refPath: "relatedModel",
-    default: null,
-  },
-  // FIX: removed default: null — null is not in the enum, which caused
-  // silent validation errors when relatedModel was not provided
-  relatedModel: {
-    type: String,
-    enum: ["Booking", "Hostel", "Vendor", null],
-    default: null,
-  },
-  isRead: {
-    type: Boolean,
-    default: false,
-    index: true,
-  },
-  readAt: {
-    type: Date,
-    default: null,
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now,
-    index: true,
-  },
-  expiresAt: {
-    type: Date,
-    default: () => new Date(+new Date() + 30 * 24 * 60 * 60 * 1000),
-  },
-});
+  { timestamps: true }
+);
 
-// Auto-remove expired notifications via TTL index
-notificationSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+// Indexes for faster queries
+notificationSchema.index({ recipientType: 1, recipientId: 1, createdAt: -1 });
+notificationSchema.index({ recipientType: 1, recipientId: 1, read: 1 });
+notificationSchema.index({ type: 1 });
+notificationSchema.index({ createdAt: -1 });
 
-// Set readAt automatically when isRead is set to true
-notificationSchema.pre("save", function (next) {
-  if (this.isModified("isRead") && this.isRead && !this.readAt) {
+// Method to mark as read
+notificationSchema.methods.markAsRead = function() {
+  if (!this.read) {
+    this.read = true;
     this.readAt = new Date();
+    return this.save();
   }
-  next();
-});
+  return this;
+};
 
-const Notification = mongoose.model("Notification", notificationSchema);
-export default Notification;
+// Static method to create notification
+notificationSchema.statics.createNotification = async function(data) {
+  const notification = new this(data);
+  await notification.save();
+  return notification;
+};
+
+// Static method to get unread count
+notificationSchema.statics.getUnreadCount = async function(recipientType, recipientId) {
+  return await this.countDocuments({
+    recipientType,
+    recipientId,
+    read: false
+  });
+};
+
+// Static method to mark all as read
+notificationSchema.statics.markAllAsRead = async function(recipientType, recipientId) {
+  return await this.updateMany(
+    { recipientType, recipientId, read: false },
+    { read: true, readAt: new Date() }
+  );
+};
+
+// Static method to delete old notifications
+notificationSchema.statics.cleanOldNotifications = async function(daysOld = 30) {
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+  
+  return await this.deleteMany({
+    createdAt: { $lt: cutoffDate },
+    read: true // Only delete read notifications
+  });
+};
+
+export default mongoose.models.Notification || mongoose.model("Notification", notificationSchema);

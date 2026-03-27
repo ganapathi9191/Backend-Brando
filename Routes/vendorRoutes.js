@@ -13,10 +13,12 @@ import {
   getVendorBannerById,
   updateVendorBanner,
   deleteVendorBanner,
-  getVendorNotifications,
-  markVendorNotificationAsRead,
-  markAllVendorNotificationsAsRead,
-  clearVendorNotifications
+    getVendorNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  deleteVendorNotification,
+  bulkDeleteVendorNotifications,
+  getUnreadNotificationsCount
 } from '../Controllers/vendorController.js';
 
 import upload from "../Config/multer.js";
@@ -46,9 +48,12 @@ router.delete("/delete/:id", deleteVendorBanner);
 router.get("/vendorsbookings/:vendorId", getBookingsByVendor);
 
 
-// GET routes
-router.get("/:vendorId/notifications", getVendorNotifications);
-router.patch("/:vendorId/notifications/read-all", markAllVendorNotificationsAsRead);
-router.patch("/:vendorId/notifications/:notificationId/read", markVendorNotificationAsRead);
-router.delete("/:vendorId/notifications", clearVendorNotifications);
+// 🔔 NOTIFICATION ROUTES
+router.get('/:vendorId/notifications', getVendorNotifications);
+router.get('/:vendorId/notifications/unread-count', getUnreadNotificationsCount);
+router.put('/:vendorId/notifications/:notificationId/read', markNotificationRead);
+router.put('/:vendorId/notifications/read-all', markAllNotificationsRead);
+router.delete('/:vendorId/notifications/:notificationId', deleteVendorNotification);
+router.delete('/:vendorId/notifications/bulk-delete', bulkDeleteVendorNotifications);
+
 export default router;
