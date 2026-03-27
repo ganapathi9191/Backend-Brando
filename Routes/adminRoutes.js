@@ -29,6 +29,10 @@ import {
   showQRCodePage,
   getAllFormSubmissions,
   getFormSubmissionsByHostel,
+  updateFormSubmission,
+  updateFormRoomNumber,
+  deleteFormSubmission,
+  getFormSubmissionById,
 } from "../Controllers/adminController.js";
 import upload from "../Config/multer.js";
 const router = express.Router();
@@ -88,5 +92,13 @@ router.get("/hostel/:hostelId/qr", showQRCodePage);                  // Shows ni
 // Form submission routes
 router.get("/submissions", getAllFormSubmissions);  // Get all form submissions
 router.get("/submissions/hostel/:hostelId", getFormSubmissionsByHostel);  // Get submissions by hostel
+
+
+// Add these routes to your existing router
+// Form submission update and delete routes
+router.put("/submission/:id", formUpload, updateFormSubmission);  // Update all except room number
+router.patch("/submission/:id/room", updateFormRoomNumber);       // Update only room number
+router.delete("/submission/:id", deleteFormSubmission);           // Delete submission
+router.get("/submission/:id", getFormSubmissionById);             // Get single submission
 
 export default router;

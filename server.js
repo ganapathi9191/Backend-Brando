@@ -1,4 +1,5 @@
-// server.js - COMPLETE FIXED VERSION
+// server.js - COMPLETE FINAL VERSION (NO MISSING FIELDS)
+
 import { TextEncoder, TextDecoder } from 'util';
 global.TextEncoder = TextEncoder;
 global.TextDecoder = TextDecoder;
@@ -15,12 +16,28 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import http from 'http';
 import { WebSocketServer } from 'ws';
-import { networkInterfaces } from 'os'; // ✅ FIXED — moved to top
+import { networkInterfaces } from 'os';
+import dns from 'dns'; // ✅ DNS added
+
+// ==================== DNS FIX ====================
+dns.setDefaultResultOrder('ipv4first');
+
+dns.setServers([
+  '8.8.8.8',
+  '8.8.4.4',
+  '1.1.1.1',
+  '208.67.222.222'
+]);
+
+console.log('✅ DNS Configuration Applied:');
+console.log('   - Default result order: ipv4first');
+console.log('   - DNS Servers:', dns.getServers());
 
 // ========== IMPORT ALL ROUTES ==========
 import authRoutes from './Routes/authRoutes.js';
 import adminRoutes from './Routes/adminRoutes.js';
 import vendorRoutes from './Routes/vendorRoutes.js';
+import cameraRoutes from './Routes/cameraRoutes.js'; // ✅ added
 
 // Import Models
 import User from './Models/User.js';
@@ -45,19 +62,18 @@ app.use((req, res, next) => {
     next();
 });
 
-
-
-// Load .env from root directory
+// Load .env again (as in your file)
 dotenv.config({ path: path.join(__dirname, '.env') });
 
-// Debug: Check if BASE_URL is loaded
+// Debug logs
 console.log("BASE_URL from .env:", process.env.BASE_URL);
 console.log("PORT from .env:", process.env.PORT);
 
 // ========== REGISTER ALL ROUTES ==========
 app.use('/api/auth', authRoutes);
-app.use('/api/Admin', adminRoutes); // ✅ FIXED — capital A matches your controller
+app.use('/api/Admin', adminRoutes);
 app.use('/api/vendors', vendorRoutes);
+app.use('/api/cameras', cameraRoutes); // ✅ added
 
 // ========== WEBSOCKET ==========
 const clients = new Set();
@@ -87,6 +103,8 @@ function broadcastToUI(data) {
     });
 }
 
+global.broadcastToUI = broadcastToUI; // ✅ added
+
 // ========== VOICE SYSTEM ==========
 class GirlVoice {
     constructor() {
@@ -99,6 +117,7 @@ class GirlVoice {
 
     speak(text) {
         if (!this.enabled) return;
+
         console.log(`🗣️ [QUEUE] "${text}"`);
 
         broadcastToUI({
@@ -108,7 +127,9 @@ class GirlVoice {
         });
 
         this.queue.push(text);
-        if (!this.isSpeaking) this.processQueue();
+        if (!this.isSpeaking) {
+            this.processQueue();
+        }
     }
 
     processQueue() {
@@ -127,6 +148,7 @@ class GirlVoice {
         }
 
         this.lastAnnouncement = now;
+
         console.log(`🔊 [SPEAKING] "${text}"`);
 
         if (process.platform === 'win32') {
@@ -134,11 +156,16 @@ class GirlVoice {
                 Add-Type -AssemblyName System.Speech;
                 $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer;
                 $femaleVoices = $synth.GetInstalledVoices() | Where-Object { $_.VoiceInfo.Gender -eq 'Female' };
-                if ($femaleVoices.Count -gt 0) $synth.SelectVoice($femaleVoices[0].VoiceInfo.Name);
+                if ($femaleVoices.Count -gt 0) {
+                    $synth.SelectVoice($femaleVoices[0].VoiceInfo.Name);
+                }
                 $synth.Speak('${text}');
             `;
+
             const ps = spawn('powershell', ['-NoProfile', '-Command', psScript]);
-            ps.on('close', () => setTimeout(() => this.processQueue(), 500));
+            ps.on('close', () => {
+                setTimeout(() => this.processQueue(), 500);
+            });
         }
     }
 
@@ -148,7 +175,9 @@ class GirlVoice {
         else this.speak(`Loaded ${count} users: ${names.join(', ')}.`);
     }
     cameraStarted() { this.speak("Camera is now active."); }
-    announceKnown(name, phone, conf) { this.speak(`${name} recognized. Phone ${phone}. ${Math.round(conf)}% match.`); }
+    announceKnown(name, phone, conf) {
+        this.speak(`${name} recognized. Phone ${phone}. ${Math.round(conf)}% match.`);
+    }
     announceUnknown() { this.speak("Warning! Unknown person detected."); }
     noFace() { this.speak("No face detected."); }
     systemStopped() { this.speak("System stopped. Goodbye!"); }
@@ -186,11 +215,16 @@ class FaceMatcher {
             }));
 
             global.knownUsers = this.knownUsers;
+
             console.log(`✅ Users: ${this.knownUsers.length}`);
 
             const names = this.knownUsers.map(u => u.name);
             this.voice.usersLoaded(this.knownUsers.length, names);
-            broadcastToUI({ type: 'users', users: this.knownUsers });
+
+            broadcastToUI({
+                type: 'users',
+                users: this.knownUsers
+            });
 
         } catch (error) {
             console.error('❌ DB Error:', error.message);
@@ -214,6 +248,7 @@ class FaceMatcher {
         while (this.isRunning) {
             try {
                 this.frameCount++;
+
                 const tempPath = path.join(this.tempDir, `frame_${Date.now()}.jpg`);
 
                 const captured = await this.captureFrame(tempPath);
@@ -225,14 +260,25 @@ class FaceMatcher {
                 fs.copyFileSync(tempPath, this.latestFramePath);
 
                 const result = await this.detectFace(tempPath);
+
                 if (result) {
                     global.lastDetection = result;
+
                     this.showResult(result);
-                    broadcastToUI({ type: 'detection', detection: result, frameCount: this.frameCount });
+
+                    broadcastToUI({
+                        type: 'detection',
+                        detection: result,
+                        frameCount: this.frameCount
+                    });
+
                     await this.handleResult(result);
                 }
 
-                if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+                if (fs.existsSync(tempPath)) {
+                    fs.unlinkSync(tempPath);
+                }
+
                 await this.sleep(2000);
 
             } catch (error) {
@@ -252,9 +298,17 @@ class FaceMatcher {
                 '-q:v', '5',
                 '-y', output
             ]);
-            ff.on('close', (code) => resolve(code === 0 && fs.existsSync(output)));
+
+            ff.on('close', (code) => {
+                resolve(code === 0 && fs.existsSync(output));
+            });
+
             ff.on('error', () => resolve(false));
-            setTimeout(() => { ff.kill(); resolve(false); }, 4000);
+
+            setTimeout(() => {
+                ff.kill();
+                resolve(false);
+            }, 4000);
         });
     }
 
@@ -264,40 +318,64 @@ class FaceMatcher {
                 const rand = Math.random();
                 if (rand < 0.3) resolve({ hasFace: false });
                 else if (rand < 0.7) resolve({ hasFace: true, matchedUser: null, confidence: 0 });
-                else resolve({ hasFace: true, matchedUser: this.knownUsers[0] || null, confidence: 85 + Math.random() * 14 });
+                else resolve({
+                    hasFace: true,
+                    matchedUser: this.knownUsers[0] || null,
+                    confidence: 85 + Math.random() * 14
+                });
                 return;
             }
 
             const py = spawn('python', [this.pythonScript, imagePath]);
             let out = '';
+
             py.stdout.on('data', (d) => out += d.toString());
+
             py.on('close', () => {
                 try { resolve(JSON.parse(out)); }
                 catch { resolve({ hasFace: false }); }
             });
+
             py.on('error', () => resolve({ hasFace: false }));
+
             setTimeout(() => resolve({ hasFace: false }), 5000);
         });
     }
 
     showResult(r) {
-        const status = !r.hasFace ? '👤 NO FACE' : r.matchedUser ? `✅ ${r.matchedUser.name}` : '⚠️ UNKNOWN';
+        const status = !r.hasFace
+            ? '👤 NO FACE'
+            : r.matchedUser
+                ? `✅ ${r.matchedUser.name}`
+                : '⚠️ UNKNOWN';
+
         console.log(`📸 Frame ${this.frameCount}: ${status}`);
     }
 
     async handleResult(r) {
-        const current = { hasFace: r?.hasFace || false, userId: r?.matchedUser?.id || null };
+        const current = {
+            hasFace: r?.hasFace || false,
+            userId: r?.matchedUser?.id || null
+        };
 
         if (JSON.stringify(this.lastState) !== JSON.stringify(current)) {
             if (!r.hasFace) this.voice.noFace();
-            else if (r.matchedUser) this.voice.announceKnown(r.matchedUser.name, r.matchedUser.phoneNumber, r.confidence);
+            else if (r.matchedUser)
+                this.voice.announceKnown(r.matchedUser.name, r.matchedUser.phoneNumber, r.confidence);
             else this.voice.announceUnknown();
+
             this.lastState = current;
         }
     }
 
-    sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-    stop() { this.isRunning = false; this.voice.systemStopped(); }
+    sleep(ms) {
+        return new Promise(r => setTimeout(r, ms));
+    }
+
+    stop() {
+        this.isRunning = false;
+        this.voice.systemStopped();
+    }
 }
 
 // ========== UI ROUTES ==========
@@ -319,13 +397,21 @@ app.get('/api/status', (req, res) => {
 
 app.post('/api/snapshot', (req, res) => {
     const frame = global.matcher?.latestFramePath;
+
     if (!frame || !fs.existsSync(frame)) {
         return res.status(404).json({ error: 'No frame' });
     }
+
     const snapDir = path.join(__dirname, 'snapshots');
-    if (!fs.existsSync(snapDir)) fs.mkdirSync(snapDir);
+
+    if (!fs.existsSync(snapDir)) {
+        fs.mkdirSync(snapDir);
+    }
+
     const snapPath = path.join(snapDir, `snap_${Date.now()}.jpg`);
+
     fs.copyFileSync(frame, snapPath);
+
     res.json({ success: true });
 });
 
@@ -334,7 +420,7 @@ app.post('/api/test-voice', (req, res) => {
     res.json({ success: true });
 });
 
-// 404 handler
+// 404
 app.use((req, res) => {
     res.status(404).json({
         success: false,
@@ -362,7 +448,6 @@ mongoose.connect(process.env.MONGO_URI)
             console.log(`\n🚀 Server running on port ${PORT}`);
             console.log(`🌐 Local:   http://localhost:${PORT}`);
 
-            // ✅ FIXED — networkInterfaces imported at top, no error now
             const nets = networkInterfaces();
             Object.values(nets).flat().forEach(net => {
                 if (net.family === 'IPv4' && !net.internal) {
@@ -375,14 +460,12 @@ mongoose.connect(process.env.MONGO_URI)
             console.log(`   POST /api/Admin/createHostel`);
             console.log(`   GET  /api/Admin/hostels`);
             console.log(`   GET  /api/Admin/hostel/:id`);
-            console.log(`   GET  /api/Admin/form/:hostelId  ← QR scans open this`);
-            console.log(`   POST /api/Admin/submit-form     ← form submits here`);
-            console.log(`\n🔗 ngrok: run "ngrok http ${PORT}" → copy https URL → paste in .env BASE_URL\n`);
+            console.log(`   GET  /api/Admin/form/:hostelId`);
+            console.log(`   POST /api/Admin/submit-form`);
         });
     })
     .catch(err => {
         console.error('❌ MongoDB Error:', err.message);
-        console.error('👉 Fix: MongoDB Atlas → Network Access → Add IP → 0.0.0.0/0 → Confirm');
         process.exit(1);
     });
 

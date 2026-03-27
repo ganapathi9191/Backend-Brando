@@ -1539,13 +1539,17 @@ export const getAllFormSubmissions = async (req, res) => {
       .populate('hostelId', 'name address') // Get hostel details
       .sort({ submittedAt: -1 }); // Latest first
 
-    // Format the response with new fields
+    // Format the response with null checks
     const formattedForms = forms.map(form => ({
       _id: form._id,
-      hostel: {
+      hostel: form.hostelId ? {  // Check if hostelId exists
         id: form.hostelId._id,
         name: form.hostelId.name,
         address: form.hostelId.address
+      } : {
+        id: form.hostelId, // Return the raw ID if population failed
+        name: 'Hostel not found',
+        address: 'N/A'
       },
       guest: {
         name: form.name,
@@ -1594,10 +1598,14 @@ export const getFormSubmissionsByHostel = async (req, res) => {
 
     const formattedForms = forms.map(form => ({
       _id: form._id,
-      hostel: {
+      hostel: form.hostelId ? {
         id: form.hostelId._id,
         name: form.hostelId.name,
         address: form.hostelId.address
+      } : {
+        id: hostelId,
+        name: 'Hostel not found',
+        address: 'N/A'
       },
       guest: {
         name: form.name,
@@ -1629,6 +1637,340 @@ export const getFormSubmissionsByHostel = async (req, res) => {
 
   } catch (error) {
     console.error("Error fetching forms by hostel:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// =============================================================================
+// UPDATE FORM SUBMISSION - UPDATE ALL EXCEPT ROOM NUMBER
+// =============================================================================
+export const updateFormSubmission = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Fields that can be updated (excluding roomNo)
+    const {
+      name,
+      email,
+      mobile,
+      emergencyNumber,
+      joiningDate,
+      tenure,
+      roomType,
+      advance,
+      hostelId
+    } = req.body;
+
+    // Find existing form submission
+    const existingForm = await FormUser.findById(id);
+    if (!existingForm) {
+      return res.status(404).json({
+        success: false,
+        message: "Form submission not found"
+      });
+    }
+
+    // Prepare update data (excluding roomNo)
+    const updateData = {};
+    
+    if (name !== undefined) updateData.name = name;
+    if (email !== undefined) updateData.email = email;
+    if (mobile !== undefined) updateData.mobile = mobile;
+    if (emergencyNumber !== undefined) updateData.emergencyNumber = emergencyNumber;
+    if (joiningDate !== undefined) updateData.joiningDate = new Date(joiningDate);
+    if (tenure !== undefined) {
+      if (!['monthly', 'daily'].includes(tenure)) {
+        return res.status(400).json({
+          success: false,
+          message: "Tenure must be either 'monthly' or 'daily'"
+        });
+      }
+      updateData.tenure = tenure;
+    }
+    if (roomType !== undefined) {
+      if (!['AC', 'Non-AC'].includes(roomType)) {
+        return res.status(400).json({
+          success: false,
+          message: "Room type must be either 'AC' or 'Non-AC'"
+        });
+      }
+      updateData.roomType = roomType;
+    }
+    if (advance !== undefined) {
+      const advanceAmount = Number(advance);
+      if (isNaN(advanceAmount) || advanceAmount < 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Advance amount must be a valid number greater than or equal to 0"
+        });
+      }
+      updateData.advance = advanceAmount;
+    }
+    if (hostelId !== undefined) updateData.hostelId = hostelId;
+
+    // Handle file uploads (if any)
+    if (req.files) {
+      if (req.files.aadhar) {
+        updateData.aadhar = `uploads/${req.files.aadhar[0].filename}`;
+      }
+      if (req.files.idCard) {
+        updateData.idCard = `uploads/${req.files.idCard[0].filename}`;
+      }
+      if (req.files.profileImage) {
+        updateData.profileImage = `uploads/${req.files.profileImage[0].filename}`;
+      }
+    }
+
+    // Update the form submission
+    const updatedForm = await FormUser.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true, runValidators: true }
+    ).populate('hostelId', 'name address');
+
+    // Format response
+    const formattedResponse = {
+      _id: updatedForm._id,
+      hostel: updatedForm.hostelId ? {
+        id: updatedForm.hostelId._id,
+        name: updatedForm.hostelId.name,
+        address: updatedForm.hostelId.address
+      } : {
+        id: updatedForm.hostelId,
+        name: 'Hostel not found',
+        address: 'N/A'
+      },
+      guest: {
+        name: updatedForm.name,
+        email: updatedForm.email,
+        mobile: updatedForm.mobile,
+        emergencyNumber: updatedForm.emergencyNumber || 'Not provided'
+      },
+      stayDetails: {
+        roomNo: updatedForm.roomNo, // Room number remains unchanged
+        joiningDate: updatedForm.joiningDate,
+        tenure: updatedForm.tenure,
+        roomType: updatedForm.roomType,
+        advance: updatedForm.advance
+      },
+      documents: {
+        aadhar: updatedForm.aadhar ? getImageUrl(req, updatedForm.aadhar) : null,
+        idCard: updatedForm.idCard ? getImageUrl(req, updatedForm.idCard) : null,
+        profileImage: updatedForm.profileImage ? getImageUrl(req, updatedForm.profileImage) : null
+      },
+      submittedAt: updatedForm.submittedAt,
+      updatedAt: updatedForm.updatedAt
+    };
+
+    res.status(200).json({
+      success: true,
+      message: "Form submission updated successfully (room number unchanged)",
+      submission: formattedResponse
+    });
+
+  } catch (error) {
+    console.error("Error updating form submission:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// =============================================================================
+// UPDATE FORM SUBMISSION - UPDATE ONLY ROOM NUMBER
+// =============================================================================
+export const updateFormRoomNumber = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { roomNo } = req.body;
+
+    // Validate room number
+    if (!roomNo) {
+      return res.status(400).json({
+        success: false,
+        message: "Room number is required"
+      });
+    }
+
+    // Find existing form submission
+    const existingForm = await FormUser.findById(id);
+    if (!existingForm) {
+      return res.status(404).json({
+        success: false,
+        message: "Form submission not found"
+      });
+    }
+
+    // Update only the room number
+    const updatedForm = await FormUser.findByIdAndUpdate(
+      id,
+      { roomNo: roomNo.trim() },
+      { new: true, runValidators: true }
+    ).populate('hostelId', 'name address');
+
+    // Format response
+    const formattedResponse = {
+      _id: updatedForm._id,
+      hostel: updatedForm.hostelId ? {
+        id: updatedForm.hostelId._id,
+        name: updatedForm.hostelId.name,
+        address: updatedForm.hostelId.address
+      } : {
+        id: updatedForm.hostelId,
+        name: 'Hostel not found',
+        address: 'N/A'
+      },
+      guest: {
+        name: updatedForm.name,
+        email: updatedForm.email,
+        mobile: updatedForm.mobile,
+        emergencyNumber: updatedForm.emergencyNumber || 'Not provided'
+      },
+      stayDetails: {
+        roomNo: updatedForm.roomNo, // Updated room number
+        joiningDate: updatedForm.joiningDate,
+        tenure: updatedForm.tenure,
+        roomType: updatedForm.roomType,
+        advance: updatedForm.advance
+      },
+      documents: {
+        aadhar: updatedForm.aadhar ? getImageUrl(req, updatedForm.aadhar) : null,
+        idCard: updatedForm.idCard ? getImageUrl(req, updatedForm.idCard) : null,
+        profileImage: updatedForm.profileImage ? getImageUrl(req, updatedForm.profileImage) : null
+      },
+      submittedAt: updatedForm.submittedAt,
+      updatedAt: updatedForm.updatedAt
+    };
+
+    res.status(200).json({
+      success: true,
+      message: "Room number updated successfully",
+      submission: formattedResponse
+    });
+
+  } catch (error) {
+    console.error("Error updating room number:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// =============================================================================
+// DELETE FORM SUBMISSION
+// =============================================================================
+export const deleteFormSubmission = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Find and delete the form submission
+    const deletedForm = await FormUser.findByIdAndDelete(id);
+    
+    if (!deletedForm) {
+      return res.status(404).json({
+        success: false,
+        message: "Form submission not found"
+      });
+    }
+
+    // Optional: Delete associated files from storage
+    // You might want to delete the uploaded files from the filesystem
+    const filesToDelete = [
+      deletedForm.aadhar,
+      deletedForm.idCard,
+      deletedForm.profileImage
+    ].filter(file => file);
+
+    // Uncomment if you want to delete actual files
+    // filesToDelete.forEach(filePath => {
+    //   const fullPath = path.join(process.cwd(), filePath);
+    //   if (fs.existsSync(fullPath)) {
+    //     fs.unlinkSync(fullPath);
+    //   }
+    // });
+
+    res.status(200).json({
+      success: true,
+      message: "Form submission deleted successfully",
+      deletedSubmission: {
+        _id: deletedForm._id,
+        guestName: deletedForm.name,
+        hostelId: deletedForm.hostelId,
+        roomNo: deletedForm.roomNo
+      }
+    });
+
+  } catch (error) {
+    console.error("Error deleting form submission:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// =============================================================================
+// GET SINGLE FORM SUBMISSION BY ID
+// =============================================================================
+export const getFormSubmissionById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const form = await FormUser.findById(id)
+      .populate('hostelId', 'name address');
+
+    if (!form) {
+      return res.status(404).json({
+        success: false,
+        message: "Form submission not found"
+      });
+    }
+
+    const formattedResponse = {
+      _id: form._id,
+      hostel: form.hostelId ? {
+        id: form.hostelId._id,
+        name: form.hostelId.name,
+        address: form.hostelId.address
+      } : {
+        id: form.hostelId,
+        name: 'Hostel not found',
+        address: 'N/A'
+      },
+      guest: {
+        name: form.name,
+        email: form.email,
+        mobile: form.mobile,
+        emergencyNumber: form.emergencyNumber || 'Not provided'
+      },
+      stayDetails: {
+        roomNo: form.roomNo,
+        joiningDate: form.joiningDate,
+        tenure: form.tenure,
+        roomType: form.roomType,
+        advance: form.advance
+      },
+      documents: {
+        aadhar: form.aadhar ? getImageUrl(req, form.aadhar) : null,
+        idCard: form.idCard ? getImageUrl(req, form.idCard) : null,
+        profileImage: form.profileImage ? getImageUrl(req, form.profileImage) : null
+      },
+      submittedAt: form.submittedAt,
+      updatedAt: form.updatedAt
+    };
+
+    res.status(200).json({
+      success: true,
+      submission: formattedResponse
+    });
+
+  } catch (error) {
+    console.error("Error fetching form submission:", error);
     res.status(500).json({
       success: false,
       message: error.message
